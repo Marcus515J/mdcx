@@ -24,23 +24,14 @@
 
 ## 构建
 
-> 一般情况请勿自行构建, 至 [Release](https://github.com/sqzw-x/mdcx/releases) 下载最新版
+> 一般情况无需自行构建，请到[本仓库 Releases](https://github.com/Marcus515J/mdcx/releases) 下载发布版本。
+> 当前提供 Apple 芯片 Mac（macOS aarch64）和 Windows x86_64 安装包；上游仓库的版本与本仓库独立发布。
 
-### Windows 7
+### 开发与构建环境
 
-> 即将放弃对 Windows 7 的支持. [#494](https://github.com/sqzw-x/mdcx/issues/494)
+当前主分支要求 Python 3.13.4 或更新版本，依赖和验证方法见 [开发说明](CONTRIBUTING.md)。自动发布使用 Python 3.13，构建目标为 macOS aarch64 和 Windows x86_64。
 
-Windows 7 上需使用 Python 3.8 构建, 代码及依赖均兼容, 可在本地自行构建. 也可使用 GitHub Actions 构建:
-
-1. fork 本仓库, 在仓库设置中启用 Actions
-2. 参考 [为存储库创建配置变量](https://docs.github.com/zh/actions/learn-github-actions/variables#creating-configuration-variables-for-a-repository), 设置 `BUILD_FOR_WINDOWS_LEGACY` 变量, 值非空即可
-3. 在 Actions 中手动运行 `Build and Release`
-
-### macOS
-
-低版本 macOS: 需注意 opencv 兼容性问题, 参考 [issue #82](https://github.com/sqzw-x/mdcx/issues/82#issuecomment-1947973961).
-也可使用 GitHub Actions 构建, 步骤同上, 需设置 `BUILD_FOR_MACOS_LEGACY` 变量, 值非空即可;
-以及 `MACOS_LEGACY_CV_VERSION` 变量, 值为兼容的 `opencv-contrib-python-headless` 版本
+仓库保留的 `Build and Release v1` 是旧版工作流；其中 Windows 7 / Python 3.8、旧 macOS 等设置不适用于当前主分支。请勿依据旧版说明判断当前版本兼容性，安装包以本仓库 Releases 实际提供的文件为准。
 
 ## 授权许可
 

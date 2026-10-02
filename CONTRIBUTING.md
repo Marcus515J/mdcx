@@ -9,9 +9,9 @@
 ### clone
 
 ```bash
-git clone https://github.com/sqzw-x/mdcx.git
+git clone https://github.com/Marcus515J/mdcx.git
 cd mdcx
-uv sync --all-extras --dev
+uv sync --locked --python 3.13 --dev
 uv run pre-commit install
 uv pip install -e .
 ```
@@ -26,11 +26,15 @@ uv run main.py
 
 ## Test
 
-Python 侧使用 pytest
+Python 侧使用 pytest。先安装 FFmpeg（需包含 ffmpeg 和 ffprobe，并加入 PATH），视频测试会生成临时视频验证元数据读取。
 
 ```bash
-uv run pytest
+QT_QPA_PLATFORM=offscreen uv run --locked pytest -q
 ```
+
+CI 在主分支推送及 PR 新建、更新、重新打开和转为待评审时，运行代码格式、静态检查及完整 pytest 测试。测试使用 Python 3.13 和锁定依赖，Qt 使用无显示模式。
+
+未提供本地 HTML 样本的解析器测试会按原有逻辑跳过；CI 不保证外部网站始终可用，也不代替 Windows/macOS 桌面交互和打包后应用的人工验证。
 
 ## 如何添加新配置项
 
