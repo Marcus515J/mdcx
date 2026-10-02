@@ -225,6 +225,7 @@ def test_actor_truncation_drops_field_when_first_actor_does_not_fit(monkeypatch)
 
 
 def test_folder_segments_avoid_windows_reserved_names(monkeypatch):
+    monkeypatch.setattr("mdcx.core.naming.sanitize.IS_WINDOWS", True)
     file_info = _build_file_info()
     result = _build_result()
     result.actor = "CON"
