@@ -31,10 +31,29 @@ jobs:
         run: uv sync --locked --dev
 
       - name: Validate test release
-        run: uv run --locked pytest -q tests/test_garbage_settings_ui.py tests/test_unified_file_cleanup.py tests/test_garbage_cleanup.py tests/test_llm_refusal.py tests/test_translate_llm.py tests/test_config_conversion.py tests/test_config_network.py tests/test_number_definition.py tests/test_scraper_remain_list.py tests/test_media_paths.py
+        run: uv run --locked pytest -q tests/test_garbage_settings_ui.py tests/test_llm_settings_ui.py tests/test_local_llm.py tests/test_unified_file_cleanup.py tests/test_garbage_cleanup.py tests/test_llm_refusal.py tests/test_translate_llm.py tests/test_config_conversion.py tests/test_config_network.py tests/test_number_definition.py tests/test_scraper_remain_list.py tests/test_media_paths.py
 
       - name: Build Windows program
         run: uv run --locked scripts/build.py --debug
+
+      - name: Validate local model launcher with paths containing spaces
+        shell: pwsh
+        run: |
+          $testDir = Join-Path $env:RUNNER_TEMP ("MDCx launcher " + [guid]::NewGuid().ToString("N"))
+          New-Item -ItemType Directory -Path $testDir | Out-Null
+          $fakeServer = Join-Path $testDir "fake server.cmd"
+          $fakeModel = Join-Path $testDir "Hy MT2.gguf"
+          Set-Content -Path $fakeServer -Encoding ascii -Value '@echo off', 'echo %*>"%~dp0args.txt"', 'exit /b 0'
+          Set-Content -Path $fakeModel -Value 'mock model'
+          try {
+            & ./scripts/start-local-hymt2.ps1 -LlamaServerPath $fakeServer -ModelPath $fakeModel
+            $recorded = Get-Content -Raw (Join-Path $testDir "args.txt")
+            if (-not $recorded.Contains($fakeModel) -or -not $recorded.Contains('--host 127.0.0.1 --port 8080 --alias HY-MT2-7B-Q8_0')) {
+              throw 'Local launcher did not preserve model path or server arguments'
+            }
+          } finally {
+            Remove-Item -LiteralPath $testDir -Recurse -Force
+          }
 
       - name: Read testing guide
         id: notes
@@ -53,3 +72,12 @@ jobs:
           prerelease: true
           overwrite: false
           body: ${{ steps.notes.outputs.BODY }}
+
+      - name: Publish local model launcher
+        uses: svenstaro/upload-release-action@v2
+        with:
+          tag: ${{ github.ref_name }}
+          file: scripts/start-local-hymt2.ps1
+          asset_name: start-local-hymt2.ps1
+          prerelease: true
+          overwrite: false

@@ -39,6 +39,7 @@ from mdcx.tools.actress_db import ActressDB
 
 from .bind_utils import get_checkbox, get_checkboxes, get_radio_buttons
 from .file_cleanup_settings import save_file_cleanup_settings
+from .llm_settings import save_llm_settings
 from .site_priority_dialog import refresh_site_priority_ui
 
 if TYPE_CHECKING:
@@ -322,6 +323,7 @@ def save_config(self: "MyMAinWindow"):
     manager.config.translate_config.llm_max_req_sec = self.Ui.doubleSpinBox_llm_max_req_sec.value()
     manager.config.translate_config.llm_max_try = self.Ui.spinBox_llm_max_try.value()
     manager.config.translate_config.llm_temperature = self.Ui.doubleSpinBox_llm_temperature.value()
+    save_llm_settings(self)
     # endregion
 
     # region common

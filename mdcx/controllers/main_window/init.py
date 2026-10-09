@@ -15,6 +15,7 @@ from mdcx.models.flags import Flags
 from mdcx.signals import signal_qt
 
 from .file_cleanup_settings import setup_file_cleanup_settings
+from .llm_settings import setup_llm_settings
 from .site_priority_dialog import setup_site_priority_ui
 from .style import build_menu_style, build_tree_widget_style
 
@@ -133,6 +134,7 @@ def Init_Ui(self: "MyMAinWindow"):
     self.Ui.widget_nfo.hide()
     setup_site_priority_ui(self)
     setup_file_cleanup_settings(self)
+    setup_llm_settings(self)
 
 
 def _setup_combo_boxes(self: "MyMAinWindow") -> None:

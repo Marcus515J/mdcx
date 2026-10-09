@@ -164,3 +164,19 @@ async def test_backup_api_failure_keeps_source_and_closes(llm):
     backup[:] = [None]
     assert await translation._llm_translate(SOURCE_OUTLINE, "{content}") == SOURCE_OUTLINE
     assert closed == [True]
+
+
+@pytest.mark.asyncio
+async def test_local_model_precedes_other_enabled_engines_and_preserves_failed_field(llm, monkeypatch):
+    cfg, answers, _, calls, _, _ = llm
+    cfg.translate_config.llm_url = HttpUrl("http://127.0.0.1:8080/v1")
+    cfg.translate_config.translate_by = [Translator.GOOGLE, Translator.LLM, Translator.BAIDU]
+    answers[SOURCE_OUTLINE] = [None, None]
+    monkeypatch.setattr(core_translation.random, "shuffle", lambda engines: None)
+    data = CrawlersResult.empty()
+    data.title, data.outline = SOURCE_TITLE, SOURCE_OUTLINE
+    await core_translation.translate_title_outline(data, "", "ABC-123")
+    assert data.title == "译后的标题"
+    assert data.outline == SOURCE_OUTLINE
+    assert len(calls) == 3
+    assert all(kwargs["max_try"] == 1 for kind, kwargs in calls if kind == "primary")
