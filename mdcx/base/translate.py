@@ -217,7 +217,7 @@ async def _llm_translate(text: str, prompt_template: str, target_language: str =
                     translated = _normalize_translated_linebreaks(translated)
                     if translated.strip() and not _is_llm_refusal(translated, tc.llm_refusal_prefixes):
                         return translated
-                    signal.add_log("⚠️ 备用模型翻译被拒")
+                    signal.add_log("⚠️ 备用模型翻译被拒" if translated.strip() else "⚠️ 备用模型不可用（空返回）")
                 else:
                     signal.add_log("⚠️ 备用模型不可用（请求失败或空返回）")
             finally:

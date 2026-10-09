@@ -76,6 +76,7 @@ def server():
         "think_only",
         "fallback_error",
         "fallback_empty",
+        "fallback_linebreaks",
         "disabled_backup",
     ],
 )
@@ -88,7 +89,14 @@ async def test_real_openai_requests_and_order(server, monkeypatch, path):
         replies[:] = [expected]
     elif path == "retry":
         replies[:] = [refusal, expected]
-    elif path in {"fallback", "all_refused", "fallback_error", "fallback_empty", "disabled_backup"}:
+    elif path in {
+        "fallback",
+        "all_refused",
+        "fallback_error",
+        "fallback_empty",
+        "fallback_linebreaks",
+        "disabled_backup",
+    }:
         replies[:] = [refusal, refusal, expected]
         if path == "all_refused":
             replies[-1] = refusal
@@ -98,6 +106,9 @@ async def test_real_openai_requests_and_order(server, monkeypatch, path):
             expected = source
         elif path == "fallback_empty":
             replies[-1] = " "
+            expected = source
+        elif path == "fallback_linebreaks":
+            replies[-1] = "<br />"
             expected = source
         elif path == "disabled_backup":
             replies.pop()
@@ -161,6 +172,8 @@ async def test_real_openai_requests_and_order(server, monkeypatch, path):
     if expected_count == 3:
         assert calls[-1][0] == "/backup/v1/chat/completions"
     assert ("📝 保留原文" in logs) == (expected == source)
+    if path == "fallback_linebreaks":
+        assert "⚠️ 备用模型不可用（空返回）" in logs
 
 
 @pytest.mark.asyncio
