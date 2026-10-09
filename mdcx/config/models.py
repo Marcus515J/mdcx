@@ -221,6 +221,16 @@ class Config(BaseModel):
         title="要从文件名中删除的字符串",
     )
     file_size: float = Field(default=100.0, title="要处理的最小文件大小（MB）")
+    garbage_enabled: bool = Field(default=False, title="自动处理无番号垃圾文件")
+    garbage_keywords: list[str] = Field(
+        default_factory=lambda: ["台湾uu", "美少女直播", "信誉保证", "最新情報", "最新情报"],
+        title="垃圾文件黑名单",
+    )
+    garbage_domain_rule: bool = Field(default=True, title="垃圾文件域名样式规则")
+    garbage_permanent_delete: bool = Field(default=False, title="永久删除垃圾文件")
+    garbage_directory: str = Field(default="", title="待删目录（空为盘符根目录下 _待删）")
+    garbage_dry_run: bool = Field(default=False, title="垃圾处理演练模式")
+
     no_escape: list[NoEscape] = Field(
         default_factory=lambda: [NoEscape.RECORD_SUCCESS_FILE],
         title="不转义的字符串",

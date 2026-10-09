@@ -9,6 +9,8 @@ from PyQt6.QtWidgets import QMessageBox
 
 from ..base.file import (
     _clean_empty_fodlers,
+    _is_garbage_directory,
+    _process_garbage_file,
     check_file,
     copy_trailer_to_theme_videos,
     get_movie_list,
@@ -311,8 +313,19 @@ class Scraper:
             signal.exec_exit_app.emit()
 
     async def process_one_file(self, task: tuple[Path, int, int]) -> None:
-        # 获取顺序
+        # Explicit/resumed tasks also bypass site search for quarantined or matched files.
         file_path, count, count_all = task
+        if _is_garbage_directory(file_path.parent) or (
+            manager.config.garbage_enabled and await asyncio.to_thread(_process_garbage_file, file_path)
+        ):
+            if file_path in Flags.remain_list:
+                Flags.remain_list.remove(file_path)
+                Flags.can_save_remain = True
+            Flags.counting_order += 1
+            Flags.scrape_starting += 1
+            Flags.scrape_started += 1
+            Flags.scrape_done += 1
+            return
         Flags.counting_order += 1
         count = Flags.counting_order
 
