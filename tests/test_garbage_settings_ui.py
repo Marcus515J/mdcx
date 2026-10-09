@@ -45,7 +45,7 @@ def test_rule_editor_saves_custom_values_and_preserves_other_settings(window, mo
 
     monkeypatch.setattr(ui.GarbageSettingsDialog, "exec", accepted)
     ui.open_garbage_settings(window)
-    saved = Config.model_validate(json.loads(ui.manager.path.read_text()))
+    saved = Config.model_validate(json.loads(ui.manager.path.read_text(encoding="utf-8")))
     assert saved.garbage_keywords == ["台湾uu", "新广告词"]
     assert saved.file_size == 123.5
     assert window.Ui.lineEdit_escape_size.text() == "123.5"
