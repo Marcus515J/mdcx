@@ -31,7 +31,7 @@ jobs:
         run: uv sync --locked --dev
 
       - name: Validate test release
-        run: uv run --locked pytest -q tests/test_garbage_settings_ui.py tests/test_garbage_cleanup.py tests/test_llm_refusal.py tests/test_translate_llm.py tests/test_config_conversion.py tests/test_config_network.py tests/test_number_definition.py tests/test_scraper_remain_list.py tests/test_media_paths.py
+        run: uv run --locked pytest -q tests/test_garbage_settings_ui.py tests/test_unified_file_cleanup.py tests/test_garbage_cleanup.py tests/test_llm_refusal.py tests/test_translate_llm.py tests/test_config_conversion.py tests/test_config_network.py tests/test_number_definition.py tests/test_scraper_remain_list.py tests/test_media_paths.py
 
       - name: Build Windows program
         run: uv run --locked scripts/build.py --debug

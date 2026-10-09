@@ -38,6 +38,7 @@ from mdcx.signals import signal_qt
 from mdcx.tools.actress_db import ActressDB
 
 from .bind_utils import get_checkbox, get_checkboxes, get_radio_buttons
+from .file_cleanup_settings import save_file_cleanup_settings
 from .site_priority_dialog import refresh_site_priority_ui
 
 if TYPE_CHECKING:
@@ -125,6 +126,7 @@ def save_config(self: "MyMAinWindow"):
         (self.Ui.checkBox_i_agree_clean, CleanAction.I_AGREE),
         (self.Ui.checkBox_auto_clean, CleanAction.AUTO_CLEAN),
     )
+    save_file_cleanup_settings(self)
     # endregion
 
     # region website

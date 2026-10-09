@@ -92,7 +92,11 @@
     "房间火爆",
     "美女荷官",
     "妹妹直播",
-    "精彩直播"
+    "精彩直播",
+    "台湾uu",
+    "美少女直播",
+    "信誉保证",
+    "最新情報"
   ],
   "clean_size": 0.0,
   "clean_ignore_ext": [],
@@ -843,13 +847,6 @@
   "rest_count": 500,
   "rest_time": "PT20M",
   "garbage_enabled": false,
-  "garbage_keywords": [
-    "台湾uu",
-    "美少女直播",
-    "信誉保证",
-    "最新情報",
-    "最新情报"
-  ],
   "garbage_domain_rule": true,
   "garbage_permanent_delete": false,
   "garbage_directory": "",

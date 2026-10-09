@@ -35,6 +35,7 @@ from mdcx.signals import signal_qt
 from mdcx.utils.file import delete_file_sync
 
 from .bind_utils import set_checkboxes, set_radio_buttons
+from .file_cleanup_settings import load_file_cleanup_settings
 from .site_priority_dialog import apply_site_priority_theme, refresh_site_priority_ui
 
 if TYPE_CHECKING:
@@ -156,6 +157,7 @@ def load_config(self: "MyMAinWindow"):
             (self.Ui.checkBox_i_agree_clean, CleanAction.I_AGREE),
             (self.Ui.checkBox_auto_clean, CleanAction.AUTO_CLEAN),
         )
+        load_file_cleanup_settings(self)
         # endregion
         # endregion
 

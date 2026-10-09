@@ -173,7 +173,7 @@ class Scraper:
 
         cfg = manager.config
         if not cfg.garbage_enabled:
-            signal.show_log_text(" 🗑 垃圾处理：未启用，可在设置 → 刮削目录 → 垃圾处理设置中开启。")
+            signal.show_log_text(" 🗑 垃圾处理：未启用自动清理，可在设置 → 刮削目录 → 文件清理设置中开启。")
         else:
             mode = "演练（只记录，不移动或删除）" if cfg.garbage_dry_run else "真实处理"
             action = "永久删除单文件" if cfg.garbage_permanent_delete else "移到待删目录"

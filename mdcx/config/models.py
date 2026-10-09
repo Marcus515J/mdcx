@@ -248,11 +248,7 @@ class Config(BaseModel):
         title="要从文件名中删除的字符串",
     )
     file_size: float = Field(default=100.0, title="要处理的最小文件大小（MB）")
-    garbage_enabled: bool = Field(default=False, title="自动处理无番号垃圾文件")
-    garbage_keywords: list[str] = Field(
-        default_factory=lambda: ["台湾uu", "美少女直播", "信誉保证", "最新情報", "最新情报"],
-        title="垃圾文件黑名单",
-    )
+    garbage_enabled: bool = Field(default=False, title="刮削时自动文件清理")
     garbage_domain_rule: bool = Field(default=True, title="垃圾文件域名样式规则")
     garbage_permanent_delete: bool = Field(default=False, title="永久删除垃圾文件")
     garbage_directory: str = Field(default="", title="待删目录（空为盘符根目录下 _待删）")
@@ -280,6 +276,10 @@ class Config(BaseModel):
             "美女荷官",
             "妹妹直播",
             "精彩直播",
+            "台湾uu",
+            "美少女直播",
+            "信誉保证",
+            "最新情報",
         ],
         title="清理规则: 文件名包含",
     )
@@ -304,6 +304,15 @@ class Config(BaseModel):
         title="启用的清理规则",
     )
     # endregion
+
+    @property
+    def garbage_keywords(self) -> list[str]:
+        """Compatibility alias; filename keywords now have one editable source."""
+        return self.clean_contains
+
+    @garbage_keywords.setter
+    def garbage_keywords(self, value: list[str]) -> None:
+        self.clean_contains = value
 
     # region: Scraping Settings
     thread_number: int = Field(default=50, title="并发数")

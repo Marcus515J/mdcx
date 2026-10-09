@@ -14,7 +14,7 @@ from mdcx.crawlers import get_registered_crawler_site_values
 from mdcx.models.flags import Flags
 from mdcx.signals import signal_qt
 
-from .garbage_settings_dialog import setup_garbage_settings_ui
+from .file_cleanup_settings import setup_file_cleanup_settings
 from .site_priority_dialog import setup_site_priority_ui
 from .style import build_menu_style, build_tree_widget_style
 
@@ -132,7 +132,7 @@ def Init_Ui(self: "MyMAinWindow"):
     self.Ui.widget_nfo.resize(791, 681)
     self.Ui.widget_nfo.hide()
     setup_site_priority_ui(self)
-    setup_garbage_settings_ui(self)
+    setup_file_cleanup_settings(self)
 
 
 def _setup_combo_boxes(self: "MyMAinWindow") -> None:
