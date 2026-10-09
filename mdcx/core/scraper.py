@@ -171,6 +171,15 @@ class Scraper:
         Flags.scrape_start_time = time.time()  # 开始刮削时间
         Flags.file_mode = file_mode  # 刮削模式（工具单文件或主界面/日志点开始正常刮削）
 
+        cfg = manager.config
+        if not cfg.garbage_enabled:
+            signal.show_log_text(" 🗑 垃圾处理：未启用，可在设置 → 刮削目录 → 垃圾处理设置中开启。")
+        else:
+            mode = "演练（只记录，不移动或删除）" if cfg.garbage_dry_run else "真实处理"
+            action = "永久删除单文件" if cfg.garbage_permanent_delete else "移到待删目录"
+            location = cfg.garbage_directory.strip() or "源文件盘符根目录下 _待删"
+            signal.show_log_text(f" 🗑 垃圾处理：{mode} | {action} | N={cfg.file_size:g} MB | 待删位置：{location}")
+
         signal.show_scrape_info("🔎 正在刮削中...")
 
         signal.set_main_info()  # 清空主界面显示信息

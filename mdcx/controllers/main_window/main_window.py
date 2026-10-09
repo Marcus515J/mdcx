@@ -3247,6 +3247,7 @@ class MyMAinWindow(QMainWindow):
         return
 
     def change_buttons_status(self):
+        self.Ui.pushButton_garbage_settings.setEnabled(False)
         Flags.stop_other = True
         self.Ui.pushButton_start_cap.setText("■ 停止")
         self.Ui.pushButton_start_cap2.setText("■ 停止")
@@ -3279,6 +3280,7 @@ class MyMAinWindow(QMainWindow):
         )
 
     def reset_buttons_status(self):
+        self.Ui.pushButton_garbage_settings.setEnabled(True)
         self.Ui.pushButton_start_cap.setEnabled(True)
         self.Ui.pushButton_start_cap2.setEnabled(True)
         self.pushButton_start_cap.emit("开始")
