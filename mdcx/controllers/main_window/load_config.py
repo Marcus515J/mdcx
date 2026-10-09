@@ -36,6 +36,7 @@ from mdcx.utils.file import delete_file_sync
 
 from .bind_utils import set_checkboxes, set_radio_buttons
 from .file_cleanup_settings import load_file_cleanup_settings
+from .llm_settings import load_llm_settings
 from .site_priority_dialog import apply_site_priority_theme, refresh_site_priority_ui
 
 if TYPE_CHECKING:
@@ -432,6 +433,7 @@ def load_config(self: "MyMAinWindow"):
         self.Ui.doubleSpinBox_llm_max_req_sec.setValue(manager.config.translate_config.llm_max_req_sec)
         self.Ui.spinBox_llm_max_try.setValue(manager.config.translate_config.llm_max_try)
         self.Ui.doubleSpinBox_llm_temperature.setValue(manager.config.translate_config.llm_temperature)
+        load_llm_settings(self)
         # endregion
 
         # region common

@@ -12,7 +12,7 @@ from httpx import Timeout
 from ..config.enums import Language
 from ..config.manager import manager
 from ..config.models import Translator
-from ..llm import LLMClient
+from ..llm import LLMClient, is_loopback_url
 from ..signals import signal
 from ..utils.language import is_probably_english_for_translation
 
@@ -166,7 +166,7 @@ def _is_llm_refusal(text: str, prefixes: list[str]) -> bool:
 
 
 async def _llm_translate(text: str, prompt_template: str, target_language: str = "简体中文") -> str | None:
-    """Use identical prompts for refusal retry and fallback; preserve the source on refusal."""
+    """Retry refusals and unavailable results, then fallback or preserve the source."""
     if not text:
         return ""
     cfg = manager.config
@@ -175,42 +175,55 @@ async def _llm_translate(text: str, prompt_template: str, target_language: str =
         "system_prompt": "You are a professional translator.",
         "user_prompt": prompt_template.replace("{content}", text).replace("{lang}", target_language),
         "temperature": tc.llm_temperature,
-        "max_try": tc.llm_max_try,
+        "max_try": 1 if is_loopback_url(str(tc.llm_url)) else tc.llm_max_try,
         "log_fn": signal.add_log,
     }
     async with manager.acquire_computed() as computed:
+        reason = "翻译被拒"
         for attempt in range(tc.llm_refusal_retries + 1):
             if attempt:
-                signal.add_log(f"🔁 翻译被拒：重试第 {attempt} 次")
+                signal.add_log(f"🔁 {reason}：重试第 {attempt} 次")
             translated = await computed.llm_client.ask(model=tc.llm_model, **request)
-            if translated is None:
-                if not attempt:
-                    return None  # Preserve existing handling of initial API errors.
-                break
+            if not translated or not translated.strip():
+                reason = "翻译不可用（请求失败或空返回）"
+                signal.add_log(f"⚠️ {reason}")
+                continue
             translated = _normalize_translated_linebreaks(translated)
+            if not translated.strip():
+                reason = "翻译不可用（空返回）"
+                signal.add_log(f"⚠️ {reason}")
+                continue
             if not _is_llm_refusal(translated, tc.llm_refusal_prefixes):
                 return translated
             signal.add_log("⚠️ 翻译被拒")
+            reason = "翻译被拒"
 
-        if tc.llm_fallback_url and tc.llm_fallback_key.strip() and tc.llm_fallback_model.strip():
+        if (
+            tc.llm_fallback_url
+            and tc.llm_fallback_model.strip()
+            and (tc.llm_fallback_key.strip() or is_loopback_url(str(tc.llm_fallback_url)))
+        ):
             signal.add_log("🔄 换备用模型")
             fallback = LLMClient(
                 api_key=tc.llm_fallback_key,
                 base_url=tc.llm_fallback_url.unicode_string(),
                 proxy=cfg.proxy if cfg.use_proxy else None,
-                timeout=Timeout(tc.llm_fallback_read_timeout),
+                timeout=Timeout(cfg.timeout, read=tc.llm_fallback_read_timeout),
                 rate=(max(tc.llm_max_req_sec, 1), max(1, 1 / tc.llm_max_req_sec)),
             )
             try:
-                # One fallback translation; transport errors still use existing llm_max_try.
-                translated = await fallback.ask(model=tc.llm_fallback_model, **request)
-                if translated:
+                translated = await fallback.ask(model=tc.llm_fallback_model, **{**request, "max_try": 1})
+                if translated and translated.strip():
                     translated = _normalize_translated_linebreaks(translated)
-                    if not _is_llm_refusal(translated, tc.llm_refusal_prefixes):
+                    if translated.strip() and not _is_llm_refusal(translated, tc.llm_refusal_prefixes):
                         return translated
                     signal.add_log("⚠️ 备用模型翻译被拒")
+                else:
+                    signal.add_log("⚠️ 备用模型不可用（请求失败或空返回）")
             finally:
                 await fallback.close()
+        else:
+            signal.add_log("⚠️ 备用模型未完整配置")
     signal.add_log("📝 保留原文")
     return text
 
@@ -327,7 +340,10 @@ def get_translator_skip_reason(translator: Translator) -> str | None:
     if translator == Translator.DEEPLX:
         return _missing_reason([("DeepLX URL", translate_config.deeplx_url)])
     if translator == Translator.LLM:
-        return _missing_reason([("LLM Model", translate_config.llm_model), ("LLM API Key", translate_config.llm_key)])
+        fields = [("LLM Model", translate_config.llm_model)]
+        if not is_loopback_url(str(translate_config.llm_url)):
+            fields.append(("LLM API Key", translate_config.llm_key))
+        return _missing_reason(fields)
     return None
 
 

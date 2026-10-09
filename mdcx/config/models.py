@@ -69,8 +69,8 @@ class TranslateConfig(BaseModel):
     baidu_key: str = Field(default="", title="百度密钥")
     deepl_key: str = Field(default="", title="DeepL API Key")
     deeplx_url: str = Field(default="", title="DeepLX URL")
-    llm_url: HttpUrl = Field(default=HttpUrl("https://api.llm.com/v1"), title="LLM API Host")
-    llm_model: str = Field(default="gpt-3.5-turbo", title="模型 ID")
+    llm_url: HttpUrl = Field(default=HttpUrl("http://127.0.0.1:8080/v1"), title="LLM API Host")
+    llm_model: str = Field(default="HY-MT2-7B-Q8_0", title="模型 ID")
     llm_key: str = Field(default="", title="LLM API Key")
     llm_prompt_title: str = Field(
         default="Please translate the following text to {lang}. Output only the translation without any explanation.\n{content}",

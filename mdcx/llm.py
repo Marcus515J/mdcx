@@ -1,13 +1,29 @@
 import asyncio
 import contextlib
+import ipaddress
 import re
 import threading
 from collections.abc import Callable
+from urllib.parse import urlsplit
 
 from aiolimiter import AsyncLimiter
 from httpx import AsyncClient, Timeout
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
+
+
+def is_loopback_url(url: str) -> bool:
+    """Recognize literal loopback hosts without DNS resolution."""
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        return False
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host or "").is_loopback
+    except ValueError:
+        return False
 
 
 class LLMClient:
@@ -20,11 +36,18 @@ class LLMClient:
         timeout: Timeout,
         rate: tuple[float, float],
     ):
+        local = is_loopback_url(base_url)
         self.client = AsyncOpenAI(
-            api_key=api_key,
+            api_key=api_key or ("local" if local else ""),
             base_url=base_url,
-            http_client=AsyncClient(proxy=proxy, verify=False, timeout=timeout, follow_redirects=True),
+            http_client=AsyncClient(
+                proxy=None if local else proxy,
+                trust_env=not local,
+                timeout=timeout,
+                follow_redirects=not local,
+            ),
             timeout=timeout,
+            max_retries=0,
         )
         self.limiter = AsyncLimiter(*rate)
         self._closed = False
@@ -103,8 +126,8 @@ class LLMClient:
         wait = 1
         await self._begin_request()
         try:
-            async with self.limiter:
-                for _ in range(max_try):
+            for attempt in range(max_try):
+                async with self.limiter:
                     try:
                         chat = await self.client.chat.completions.create(
                             model=model,
@@ -112,19 +135,18 @@ class LLMClient:
                             temperature=temperature,
                             extra_body=extra_body,
                         )
-                        break
+                        text = chat.choices[0].message.content if chat.choices else None
+                        if text:
+                            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+                        return text
                     except Exception as e:
-                        log_fn(f"⚠️ LLM API 请求失败: {e}, {wait}s 后重试")
-                        await asyncio.sleep(wait)
-                        wait *= 2
-                else:
-                    log_fn("❌ LLM API 请求失败, 已达最大重试次数\n")
-                    return None
+                        # Do not log provider bodies, URLs or credentials.
+                        log_fn(f"⚠️ LLM API 请求失败: {type(e).__name__}")
+                if attempt + 1 < max_try:
+                    log_fn(f"🔁 LLM API {wait}s 后重试")
+                    await asyncio.sleep(wait)
+                    wait *= 2
+            log_fn("❌ LLM API 请求失败, 已达最大尝试次数\n")
+            return None
         finally:
             await self._end_request()
-        # reasoning_content = getattr(chat.choices[0].message, "reasoning_content", None)
-        text = chat.choices[0].message.content
-        # 移除 cot
-        if text:
-            text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-        return text
