@@ -138,3 +138,142 @@ def test_prevent_char_and_appointed_number(samples, monkeypatch):
     monkeypatch.setattr(Flags, "file_mode", FileMode.Again)
     monkeypatch.setattr(Flags, "new_again_dic", {paths["未知小片.mp4"]: ("ABC-123", "", "")})
     assert not files._process_garbage_file(paths["未知小片.mp4"])
+
+
+def make_garbage_tree(tmp_path):
+    folder = tmp_path / "只剩垃圾"
+    folder.mkdir()
+    (folder / "广告.mp4").write_bytes(b"garbage video")
+    (folder / "推广.url").write_bytes(b"garbage link")
+    return folder
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_whole_folder_quarantine(samples, tmp_path, dry_run):
+    cfg, _, logs = samples
+    cfg.garbage_dry_run = dry_run
+    folder = make_garbage_tree(tmp_path)
+    quarantine = Path(cfg.garbage_directory)
+    quarantine.mkdir()
+    collision = quarantine / folder.name
+    collision.mkdir()
+    (collision / "正常文件.txt").write_bytes(b"preserve")
+    before = {path.name: path.read_bytes() for path in folder.iterdir()}
+    files._quarantine_garbage_folders(tmp_path, [])
+    if dry_run:
+        assert folder.exists()
+        assert {path.name: path.read_bytes() for path in folder.iterdir()} == before
+        assert not (quarantine / (folder.name + "_1")).exists()
+        assert any("演练目录:" in line for line in logs)
+    else:
+        assert not folder.exists()
+        destination = quarantine / (folder.name + "_1")
+        assert {path.name: path.read_bytes() for path in destination.iterdir()} == before
+        assert any("处理目录:" in line for line in logs)
+    assert (collision / "正常文件.txt").read_bytes() == b"preserve"
+
+
+@pytest.mark.parametrize(
+    "protected", ["FC2PPV-4057967.mp4", "台湾uu.nfo", "poster.jpg", "movie.srt", "私人笔记.txt", "skip", "推广skip.url"]
+)
+def test_protected_file_prevents_directory_move(samples, tmp_path, protected):
+    _, _, _ = samples
+    folder = make_garbage_tree(tmp_path)
+    protected_path = folder / protected
+    protected_path.write_bytes(b"keep")
+    files._quarantine_garbage_folders(tmp_path, [])
+    assert folder.exists()
+    assert protected_path.read_bytes() == b"keep"
+    assert (folder / "广告.mp4").exists()
+
+
+def test_source_root_and_empty_directory_never_move(samples, tmp_path):
+    _, _, _ = samples
+    folder = make_garbage_tree(tmp_path)
+    files._quarantine_garbage_folders(folder, [])
+    assert folder.exists()
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    files._quarantine_garbage_folders(tmp_path, [folder])
+    assert empty.exists() and folder.exists()
+
+
+def test_nested_and_symlink_directory(samples, tmp_path):
+    cfg, _, _ = samples
+    folder = make_garbage_tree(tmp_path)
+    nested = folder / "nested"
+    nested.mkdir()
+    (nested / "广告.url").write_bytes(b"nested garbage")
+    files._quarantine_garbage_folders(tmp_path, [])
+    assert not folder.exists()
+    assert (Path(cfg.garbage_directory) / folder.name / "nested" / "广告.url").exists()
+    link_folder = make_garbage_tree(tmp_path)
+    (link_folder / "link").symlink_to(tmp_path / "FC2PPV-4057967", target_is_directory=True)
+    files._quarantine_garbage_folders(tmp_path, [])
+    assert link_folder.exists()
+
+
+@pytest.mark.asyncio
+async def test_scan_defers_whole_garbage_directory(samples, tmp_path):
+    cfg, _, _ = samples
+    folder = make_garbage_tree(tmp_path)
+    result = await files.movie_lists([], [".mp4"], tmp_path)
+    assert folder.exists()
+    assert (folder / "广告.mp4").exists()
+    assert not any(path.is_relative_to(folder) for path in result)
+    files._quarantine_garbage_folders(tmp_path, [])
+    assert not folder.exists()
+    assert await files.movie_lists([], [".mp4"], Path(cfg.garbage_directory)) == []
+
+
+def test_copy_failure_keeps_original_directory(samples, tmp_path, monkeypatch):
+    _, _, logs = samples
+    folder = make_garbage_tree(tmp_path)
+
+    def fail(*args, **kwargs):
+        raise PermissionError("模拟复制失败")
+
+    monkeypatch.setattr(files.shutil, "copytree", fail)
+    files._quarantine_garbage_folders(tmp_path, [])
+    assert (folder / "广告.mp4").read_bytes() == b"garbage video"
+    assert any("垃圾目录移动失败" in line for line in logs)
+
+
+def test_new_normal_file_during_copy_keeps_source(samples, tmp_path, monkeypatch):
+    _, _, logs = samples
+    folder = make_garbage_tree(tmp_path)
+    copytree = files.shutil.copytree
+
+    def copy_and_add(source, destination, **kwargs):
+        result = copytree(source, destination, **kwargs)
+        (source / "正常笔记.txt").write_bytes(b"new normal file")
+        return result
+
+    monkeypatch.setattr(files.shutil, "copytree", copy_and_add)
+    files._quarantine_garbage_folders(tmp_path, [])
+    assert folder.exists()
+    assert (folder / "正常笔记.txt").read_bytes() == b"new normal file"
+    assert (folder / "广告.mp4").exists()
+    assert any("保留源目录" in line for line in logs)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("dry_run", [True, False])
+async def test_run_finishes_with_directory_quarantine(samples, tmp_path, dry_run):
+    from mdcx.core import scraper
+
+    cfg, _, _ = samples
+    media = tmp_path / "isolated_media"
+    media.mkdir()
+    folder = make_garbage_tree(media)
+    cfg.media_path = str(media)
+    cfg.garbage_dry_run = dry_run
+    cfg.thread_time = 0
+    cfg.switch_on = []
+    cfg.emby_on = []
+    cfg.actor_photo_kodi_auto = False
+    files.signal.stop = False
+    await scraper.Scraper(object())._run(FileMode.Default, None)
+    assert folder.exists() == dry_run
+    if not dry_run:
+        assert (Path(cfg.garbage_directory) / folder.name / "广告.mp4").exists()

@@ -361,20 +361,19 @@ def _is_garbage_directory(path: Path) -> bool:
     return "_待删" in absolute.parts or absolute.resolve().is_relative_to(_garbage_directory(path).resolve())
 
 
-def _process_garbage_file(path: Path) -> bool:
-    """Return True for a matched file, even in dry run or on failure: never search it."""
+def _garbage_video_rules(path: Path) -> list[str]:
     cfg = manager.config
     if not cfg.garbage_enabled or path.suffix.lower() not in cfg.media_type:
-        return False
+        return []
     if path.is_symlink() or not path.is_file() or _is_garbage_directory(path):
-        return False
+        return []
     if Flags.file_mode == FileMode.Again and Flags.new_again_dic.get(path, ("", "", ""))[0]:
-        return False
+        return []
     if Flags.file_mode == FileMode.Single and Flags.appoint_url:
-        return False
+        return []
     number_path = str(path).replace(cfg.prevent_char, "") if cfg.prevent_char else str(path)
     if get_file_number(number_path, manager.computed.escape_string_list, recognized_only=True):
-        return False
+        return []
     name = re.sub(r"\s+", "", path.stem).casefold()
     rules = [
         f"黑名单:{word}"
@@ -383,12 +382,150 @@ def _process_garbage_file(path: Path) -> bool:
     ]
     if cfg.garbage_domain_rule and any(domain in name for domain in (".com", ".net", ".cc", "www.")):
         rules.append("域名样式")
+    if path.stat().st_size < cfg.file_size * 1024 * 1024:
+        rules.append(f"小于 {cfg.file_size:g} MB")
+    return rules
+
+
+def _garbage_folder_files(folder: Path) -> list[tuple[Path, list[str]]]:
+    """All contents must be positively identified as garbage; unknown files protect the tree."""
+    cfg = manager.config
+    if not cfg.garbage_enabled or folder.is_symlink() or _is_garbage_directory(folder):
+        return []
+    protected_exts = {".nfo", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".tif", ".tiff"}
+    protected_exts.update(ext.casefold() for ext in cfg.sub_type)
+    protected_exts.update({".srt", ".ass", ".ssa", ".sub", ".idx", ".vtt"})
+    result = []
+    try:
+        for root, dirs, names in folder.walk(top_down=True):
+            if any((root / d).is_symlink() or _is_garbage_directory(root / d) for d in dirs):
+                return []
+            for name in names:
+                path = root / name
+                ext = path.suffix.casefold()
+                if path.is_symlink() or not path.is_file() or ext in protected_exts:
+                    return []
+                if ext in cfg.media_type:
+                    rules = _garbage_video_rules(path)
+                else:
+                    # Reuse positive filename/extension rules, never the broad size rule.
+                    # Apply configured exclusions even when legacy auto-clean is disabled.
+                    if ext in cfg.clean_ignore_ext or any(word and word in name for word in cfg.clean_ignore_contains):
+                        return []
+                    rules = []
+                    if CleanAction.CLEAN_EXT in cfg.clean_enable and ext in cfg.clean_ext:
+                        rules.append(f"清理扩展名:{ext}")
+                    if CleanAction.CLEAN_NAME in cfg.clean_enable and name in cfg.clean_name:
+                        rules.append(f"清理文件名:{name}")
+                    if CleanAction.CLEAN_CONTAINS in cfg.clean_enable:
+                        rules.extend(f"清理关键词:{word}" for word in cfg.clean_contains if word and word in name)
+                if not rules:
+                    return []
+                result.append((path, rules))
+    except OSError as error:
+        signal.show_log_text(f" 🔴 无法检查垃圾目录: {folder} | {error}")
+        return []
+    return result
+
+
+def _log_pending_garbage_folder(folder: Path, entries: list[tuple[Path, list[str]]]) -> None:
+    prefix = "演练" if manager.config.garbage_dry_run else "待处理"
+    for path, rules in entries:
+        signal.show_log_text(f" 🗑 {prefix}: {path} | {', '.join(rules)} | 刮削结束后整目录移到待删: {folder}")
+
+
+def _quarantine_garbage_folders(movie_path: Path, ignore_dirs: list[Path]) -> None:
+    """After scraping, move only garbage-only subdirectories; never move the media root."""
+    cfg = manager.config
+    if (
+        not cfg.garbage_enabled
+        or signal.stop
+        or Flags.stop_requested
+        or not movie_path.is_dir()
+        or _is_garbage_directory(movie_path)
+    ):
+        return
+    ignored = {path.resolve() for path in ignore_dirs}
+    for root, dirs, _ in movie_path.walk(top_down=True):
+        dirs[:] = [
+            d
+            for d in dirs
+            if not (root / d).is_symlink()
+            and not _is_garbage_directory(root / d)
+            and (root / d).resolve() not in ignored
+        ]
+        if root == movie_path or root.resolve() in ignored:
+            continue
+        # An excluded descendant protects its parent as well.
+        if any(path.is_relative_to(root.resolve()) for path in ignored):
+            continue
+        if signal.stop or Flags.stop_requested:
+            return
+        entries = _garbage_folder_files(root)
+        if not entries:
+            continue
+        prefix = "演练" if cfg.garbage_dry_run else "处理"
+        destination = _garbage_directory(root) / root.name
+        if cfg.garbage_dry_run:
+            signal.show_log_text(f" 🗑 {prefix}目录: {root} | 仅含垃圾文件 | 整目录移到待删 {destination}")
+            dirs.clear()
+            continue
+        try:
+            snapshot = {path: path.lstat() for path, _ in entries}
+            signature_fields = ("st_dev", "st_ino", "st_mode", "st_size", "st_mtime_ns")
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            index = 0
+            while True:
+                try:
+                    # copytree creates its destination exclusively, including on another volume.
+                    shutil.copytree(root, destination, symlinks=True)
+                    break
+                except FileExistsError:
+                    index += 1
+                    destination = destination.parent / f"{root.name}_{index}"
+            current = _garbage_folder_files(root)
+            if {path for path, _ in current} != set(snapshot) or any(
+                any(getattr(path.lstat(), field) != getattr(before, field) for field in signature_fields)
+                for path, before in snapshot.items()
+            ):
+                signal.show_log_text(f" 🔴 垃圾目录内容发生变化，保留源目录: {root} | 已复制到 {destination}")
+                dirs.clear()
+                continue
+            # Remove only verified files; a newly added normal file prevents rmdir, never rmtree.
+            for path, rules in entries:
+                if any(getattr(path.lstat(), field) != getattr(snapshot[path], field) for field in signature_fields):
+                    raise OSError(f"源文件发生变化: {path}")
+                path.unlink()
+                signal.show_log_text(f" 🗑 处理: {path} | {', '.join(rules)} | 整目录移到待删 {destination}")
+            subdirectories = []
+            for parent, children, _ in root.walk(top_down=True):
+                subdirectories.extend(parent / name for name in children)
+            for child in sorted(subdirectories, key=lambda path: len(path.parts), reverse=True):
+                child.rmdir()
+            root.rmdir()
+            signal.show_log_text(f" 🗑 {prefix}目录: {root} | 仅含垃圾文件 | 整目录移到待删 {destination}")
+        except OSError as error:
+            signal.show_log_text(f" 🔴 垃圾目录移动失败: {root} | 整目录移到待删 {destination} | {error}")
+        dirs.clear()
+
+
+def _process_garbage_file(path: Path, *, defer_folder: bool = False) -> bool:
+    """Return True for a matched file, even in dry run or on failure: never search it."""
+    cfg = manager.config
+    try:
+        rules = _garbage_video_rules(path)
+    except OSError as error:
+        signal.show_log_text(f" 🔴 垃圾文件检查失败: {path} | {error}")
+        return False
+    if not rules:
+        return False
+    if defer_folder:
+        entries = _garbage_folder_files(path.parent)
+        if entries:
+            _log_pending_garbage_folder(path.parent, [(path, rules)])
+            return True
     action = "永久删除" if cfg.garbage_permanent_delete else "移到待删目录"
     try:
-        if path.stat().st_size < cfg.file_size * 1024 * 1024:
-            rules.append(f"小于 {cfg.file_size:g} MB")
-        if not rules:
-            return False
         prefix = "演练" if cfg.garbage_dry_run else "处理"
         if cfg.garbage_dry_run:
             signal.show_log_text(f" 🗑 {prefix}: {path} | {', '.join(rules)} | {action}")
@@ -442,6 +579,13 @@ async def movie_lists(ignore_dirs: list[Path], media_type: list[str], movie_path
             for d in dirs.copy():
                 if _is_garbage_directory(root / d) or root / d in ignore_dirs or "behind the scenes" in d:
                     dirs.remove(d)
+
+            if manager.config.garbage_enabled and root != movie_path:
+                entries = _garbage_folder_files(root)
+                if entries and not any(path.resolve().is_relative_to(root.resolve()) for path in ignore_dirs):
+                    _log_pending_garbage_folder(root, entries)
+                    dirs.clear()
+                    continue
 
             # 文件夹是否存在跳过文件
             for skip_key in skip_list:
