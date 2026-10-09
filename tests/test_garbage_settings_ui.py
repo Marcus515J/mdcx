@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget
 from mdcx.base import file as files
 from mdcx.config.models import Config
 from mdcx.controllers.main_window import file_cleanup_settings as ui
+from mdcx.controllers.main_window import style
 from mdcx.views.MDCx import Ui_MDCx
 
 
@@ -32,6 +33,7 @@ def window(app, monkeypatch, tmp_path):
         ui.manager.save()
 
     window.pushButton_save_config_clicked = save
+    window.Ui.pushButton_save_config.clicked.connect(save)
     ui.setup_file_cleanup_settings(window)
     yield window
     window.close()
@@ -44,7 +46,7 @@ def test_inline_editor_saves_mode_and_preserves_existing_rules(window, tmp_path)
     controls.checkBox_clean_domain.setChecked(False)
     controls.doubleSpinBox_clean_video_size.setValue(123.5)
     controls.lineEdit_clean_directory.setText(str(tmp_path / "_待删"))
-    controls.pushButton_save_cleanup.click()
+    controls.pushButton_save_config.click()
     saved = Config.model_validate(json.loads(ui.manager.path.read_text(encoding="utf-8")))
     assert not saved.garbage_dry_run and not saved.garbage_domain_rule
     assert saved.file_size == 123.5 and float(controls.lineEdit_escape_size.text()) == 123.5
@@ -71,19 +73,24 @@ def test_manual_clean_available_with_auto_disabled_and_delete_visible(window):
     controls.checkBox_auto_clean.setChecked(False)
     controls.comboBox_clean_action.setCurrentIndex(1)
     controls.checkBox_clean_dry_run.setChecked(False)
-    controls.pushButton_save_cleanup.click()
+    controls.pushButton_save_config.click()
     assert not ui.manager.config.garbage_enabled
     assert ui.manager.config.garbage_permanent_delete
     assert "永久删除" in controls.label_271.text()
     assert controls.pushButton_check_and_clean_files.isEnabled()
 
 
-def test_options_are_inside_existing_group_and_next_group_is_clear(window):
+@pytest.mark.parametrize("dark", [False, True])
+def test_options_are_inside_existing_group_and_next_group_is_clear(window, dark):
+    window.dark_mode, window.window_radius, window.window_border = dark, 10, 1
+    window.set_dark_style = lambda: style.set_dark_style(window)
+    style.set_style(window)
     controls = window.Ui
     assert not hasattr(controls, "pushButton_garbage_settings")
+    assert not hasattr(controls, "pushButton_save_cleanup")
     panel = controls.groupBox_61.findChild(QWidget, "fileCleanupOptions")
     assert panel is not None and controls.groupBox_61.rect().contains(panel.geometry())
-    for child in (controls.pushButton_save_cleanup, controls.pushButton_check_and_clean_files, controls.label_271):
+    for child in (controls.pushButton_check_and_clean_files, controls.label_271):
         assert controls.groupBox_61.rect().contains(child.geometry())
     assert controls.groupBox_9.y() > controls.groupBox_61.geometry().bottom()
     assert controls.scrollAreaWidgetContents_guaxiaomulu.height() > controls.groupBox_9.geometry().bottom()
