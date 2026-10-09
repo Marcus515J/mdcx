@@ -1,0 +1,55 @@
+name: Windows test release
+
+on:
+  push:
+    tags:
+      - 'test-*'
+
+permissions:
+  contents: write
+
+jobs:
+  windows-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      PYTHONIOENCODING: utf-8
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Checkout test source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+          activate-environment: true
+
+      - name: Install locked dependencies
+        run: uv sync --locked --dev
+
+      - name: Validate test release
+        run: uv run --locked pytest -q tests/test_garbage_cleanup.py tests/test_llm_refusal.py tests/test_translate_llm.py tests/test_config_conversion.py tests/test_config_network.py tests/test_number_definition.py tests/test_scraper_remain_list.py tests/test_media_paths.py
+
+      - name: Build Windows program
+        run: uv run --locked scripts/build.py --debug
+
+      - name: Read testing guide
+        id: notes
+        shell: pwsh
+        run: |
+          "BODY<<MDCX_TEST_GUIDE_EOF" >> $env:GITHUB_OUTPUT
+          Get-Content -Raw -Encoding utf8 docs/windows-test-guide.md >> $env:GITHUB_OUTPUT
+          "MDCX_TEST_GUIDE_EOF" >> $env:GITHUB_OUTPUT
+
+      - name: Publish Windows prerelease
+        uses: svenstaro/upload-release-action@v2
+        with:
+          tag: ${{ github.ref_name }}
+          file: dist/MDCx.exe
+          asset_name: MDCx-${{ github.ref_name }}-windows-x86_64.exe
+          prerelease: true
+          overwrite: false
+          body: ${{ steps.notes.outputs.BODY }}
