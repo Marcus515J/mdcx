@@ -84,6 +84,33 @@ class TranslateConfig(BaseModel):
     llm_max_req_sec: float = Field(default=1, title="LLM 每秒最大请求数")
     llm_max_try: int = Field(default=5, title="LLM 最大尝试次数")
     llm_temperature: float = Field(default=0.2, title="LLM 温度")
+    llm_refusal_prefixes: list[str] = Field(
+        default_factory=lambda: [
+            "抱歉",
+            "对不起",
+            "很抱歉",
+            "我不能",
+            "我无法",
+            "无法协助",
+            "不能协助",
+            "I'm sorry",
+            "I am sorry",
+            "I can't",
+            "I cannot",
+            "Sorry",
+        ],
+        title="LLM 拒绝前缀",
+    )
+    llm_refusal_retries: int = Field(default=1, ge=0, title="LLM 拒绝后同模型重试次数")
+    llm_fallback_url: HttpUrl | None = Field(default=None, title="备用 LLM API 地址")
+    llm_fallback_key: str = Field(default="", title="备用 LLM API Key")
+    llm_fallback_model: str = Field(default="", title="备用 LLM 模型 ID")
+    llm_fallback_read_timeout: int = Field(default=60, gt=0, title="备用 LLM 超时（秒）")
+
+    @field_validator("llm_fallback_url", mode="before")
+    @classmethod
+    def empty_fallback_url(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
     def model_post_init(self, context) -> None:
         if self.llm_max_req_sec <= 0:

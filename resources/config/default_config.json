@@ -657,7 +657,26 @@
     "llm_read_timeout": 60,
     "llm_max_req_sec": 10.0,
     "llm_max_try": 5,
-    "llm_temperature": 0.9
+    "llm_temperature": 0.9,
+    "llm_refusal_prefixes": [
+      "抱歉",
+      "对不起",
+      "很抱歉",
+      "我不能",
+      "我无法",
+      "无法协助",
+      "不能协助",
+      "I'm sorry",
+      "I am sorry",
+      "I can't",
+      "I cannot",
+      "Sorry"
+    ],
+    "llm_refusal_retries": 1,
+    "llm_fallback_url": null,
+    "llm_fallback_key": "",
+    "llm_fallback_model": "",
+    "llm_fallback_read_timeout": 60
   },
   "nfo_include_new": [
     "sorttitle",
