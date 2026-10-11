@@ -254,6 +254,14 @@ class LocalModelService:
                         code = self.process.returncode if self.process else "已停止"
                         raise RuntimeError(f"llama-server 提前退出（{code}）；请打开日志检查显存、驱动或依赖。")
                 ready = self.ready_model()
+                # A process can exit while the health request is waiting. Report
+                # its exit code before treating a missed deadline as load timeout.
+                with self._lock:
+                    if self.cancel.is_set():
+                        raise InterruptedError("已取消启动。")
+                    if self.process is None or self.process.poll() is not None:
+                        code = self.process.returncode if self.process else "已停止"
+                        raise RuntimeError(f"llama-server 提前退出（{code}）；请打开日志检查显存、驱动或依赖。")
                 if ready:
                     with self._lock:
                         if self.cancel.is_set() or not self.owned:

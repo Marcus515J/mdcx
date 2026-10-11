@@ -242,7 +242,7 @@ def test_early_exit_and_load_timeout_leave_no_child(service, monkeypatch, mode, 
     manager, server, model, logs, calls = service
     monkeypatch.setenv("MDCX_LAUNCHER_TEST_MODE", mode)
     with pytest.raises(error):
-        manager.start(server, model, [logs], timeout=1)
+        manager.start(server, model, [logs], timeout=5 if mode == "fail" else 1)
     assert not manager.owned and manager.process is None
     if mode == "fail":
         assert "MOCK_DLL_FAILURE" in (manager.log_directory / "server-stderr.log").read_text()
