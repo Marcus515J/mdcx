@@ -16,6 +16,8 @@ $utf8 = New-Object System.Text.UTF8Encoding($false)
 $OutputEncoding = $utf8
 $ownedServer = $null
 $logDirectory = $null
+$logStreams = @()
+$logCopies = @()
 $exitCode = 1
 $modelAlias = "HY-MT2-7B-Q8_0"
 $baseUrl = "http://127.0.0.1:$Port/v1"
@@ -112,7 +114,7 @@ function Find-Installation([string[]]$Roots) {
                 }
             } elseif ($item.Name -ieq "llama-server.exe") {
                 if (Test-ServerFile $item.FullName) { $servers.Add($item.FullName) }
-            } elseif ($item.Name -match '(?i)^HY[-_]?MT2.*\.gguf$') {
+            } elseif ($item.Name -match '(?i)HY[-_]?MT2.*\.gguf$') {
                 if (Test-Header $item.FullName ([byte[]](71, 71, 85, 70))) { $models.Add($item.FullName) }
             }
         }
@@ -129,10 +131,10 @@ function Find-Installation([string[]]$Roots) {
     return @{ Server = $server; Model = $model }
 }
 
-function Get-ReadyModel {
+function Get-LocalJson([string]$Url) {
     $response = $null
     try {
-        $request = [Net.HttpWebRequest]::Create("$baseUrl/models")
+        $request = [Net.HttpWebRequest]::Create($Url)
         $request.Proxy = $null
         $request.AllowAutoRedirect = $false
         $request.Timeout = 1500
@@ -141,10 +143,19 @@ function Get-ReadyModel {
         $reader = New-Object IO.StreamReader($response.GetResponseStream())
         try { $body = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
         if ([int]$response.StatusCode -ne 200) { return $null }
-        foreach ($model in $body.data) {
-            if ($model.id -match '(?i)^HY[-_]?MT2') { return [string]$model.id }
-        }
+        return $body
     } catch { return $null } finally { if ($response) { $response.Dispose() } }
+    return $null
+}
+
+function Get-ReadyModel {
+    # llama.cpp's health endpoint remains 503 until the model is loaded.
+    $health = Get-LocalJson "http://127.0.0.1:$Port/health"
+    if (-not $health -or $health.status -ne "ok") { return $null }
+    $body = Get-LocalJson "$baseUrl/models"
+    foreach ($model in $body.data) {
+        if ($model.id -match '(?i)HY[-_]?MT2') { return [string]$model.id }
+    }
     return $null
 }
 
@@ -159,6 +170,10 @@ function Test-PortOccupied {
 }
 
 function Show-ServerErrors {
+    if ($ownedServer -and $ownedServer.HasExited) {
+        foreach ($copy in $logCopies) { try { $copy.Wait(2000) | Out-Null } catch {} }
+    }
+    foreach ($stream in $logStreams) { try { $stream.Flush() } catch {} }
     foreach ($name in @("server-stderr.log", "server-stdout.log")) {
         $path = Join-Path $logDirectory $name
         if (Test-Path -LiteralPath $path) {
@@ -225,12 +240,29 @@ try {
         Write-Status "服务程序：$LlamaServerPath"
         Write-Status "模型文件：$ModelPath"
         Write-Status "正在启动模型，首次加载可能需要几分钟……"
-        # PS 5.1 joins ArgumentList into a command line; quote the model explicitly.
+        # Use literal .NET paths: PS 5.1 Start-Process treats [] as wildcards.
         $serverArguments = '-m "' + $ModelPath + '" -ngl 999 -c 8192 --host 127.0.0.1 --port ' + $Port + ' --alias ' + $modelAlias
-        $ownedServer = Start-Process -FilePath $LlamaServerPath -ArgumentList $serverArguments -PassThru -WindowStyle Hidden `
-            -WorkingDirectory (Split-Path -Parent $LlamaServerPath) `
-            -RedirectStandardOutput (Join-Path $logDirectory "server-stdout.log") `
-            -RedirectStandardError (Join-Path $logDirectory "server-stderr.log")
+        $info = New-Object Diagnostics.ProcessStartInfo
+        $info.FileName = $LlamaServerPath
+        $info.Arguments = $serverArguments
+        $info.WorkingDirectory = [IO.Path]::GetDirectoryName($LlamaServerPath)
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        foreach ($name in @("server-stdout.log", "server-stderr.log")) {
+            $logStreams += [IO.File]::Open((Join-Path $logDirectory $name),
+                [IO.FileMode]::Create, [IO.FileAccess]::Write, [IO.FileShare]::Read)
+        }
+        $process = New-Object Diagnostics.Process
+        $process.StartInfo = $info
+        try {
+            if (-not $process.Start()) { throw "Windows 未能启动服务程序。" }
+        } catch { $process.Dispose(); throw }
+        $ownedServer = $process
+        # Drain both pipes asynchronously without PowerShell callbacks/runspaces.
+        $logCopies += $ownedServer.StandardOutput.BaseStream.CopyToAsync($logStreams[0])
+        $logCopies += $ownedServer.StandardError.BaseStream.CopyToAsync($logStreams[1])
         $timer = [Diagnostics.Stopwatch]::StartNew()
         $lastProgress = 0
         while ($true) {
@@ -277,7 +309,12 @@ try {
         } catch { Write-Host "停止服务时遇到错误：$($_.Exception.Message)" }
         $ownedServer.Dispose()
     }
+    foreach ($copy in $logCopies) { try { $copy.Wait(5000) | Out-Null } catch {} }
+    foreach ($stream in $logStreams) { $stream.Dispose() }
 }
 
-if (-not $NonInteractive -and -not $FromLauncher) { Read-Host "按回车关闭窗口" | Out-Null }
+if (-not $NonInteractive -and -not $FromLauncher) {
+    Write-Host "按回车关闭窗口"
+    Read-Host | Out-Null
+}
 exit $exitCode

@@ -48,8 +48,11 @@ public class FakeServer {
                     if (first == null) continue;
                     while (!String.IsNullOrEmpty(reader.ReadLine())) {}
                     string body = "{\"data\":[{\"id\":\"" + alias + "\"}]}";
+                    bool health = first.StartsWith("GET /health ");
+                    if (health) body = "{\"status\":\"" + (mode == "loading" ? "loading" : "ok") + "\"}";
                     byte[] bytes = Encoding.UTF8.GetBytes(body);
-                    string header = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: "
+                    string status = (health && mode == "loading") ? "503 Service Unavailable" : "200 OK";
+                    string header = "HTTP/1.1 " + status + "\r\nContent-Type: application/json\r\nContent-Length: "
                         + bytes.Length + "\r\nConnection: close\r\n\r\n";
                     byte[] head = Encoding.ASCII.GetBytes(header);
                     stream.Write(head, 0, head.Length);
@@ -296,11 +299,25 @@ class LauncherTests(unittest.TestCase):
         self.assertIn("等待模型加载超时", self.output)
         self.assert_stopped()
 
+    def test_models_listed_but_weights_loading_does_not_claim_ready(self):
+        self.installation()
+        self.assertEqual(self.run_launcher(mode="loading").returncode, 1, self.output)
+        self.assertIn("等待模型加载超时", self.output)
+        self.assertNotIn("服务已就绪", self.output)
+        self.assert_stopped()
+
     def test_ready_existing_service_reused_without_stopping(self):
         process = self.start_external("HY-MT2-other")
         self.assertEqual(self.run_launcher().returncode, 0, self.output)
         self.assertIn("直接使用", self.output)
         self.assertIn("HY-MT2-other", self.output)
+        self.assertIsNone(process.poll())
+        self.assertFalse(self.record.exists())
+
+    def test_existing_service_with_model_path_as_id(self):
+        process = self.start_external("C:/models/HY-MT2-7B-Q8_0.gguf")
+        self.assertEqual(self.run_launcher().returncode, 0, self.output)
+        self.assertIn("C:/models/HY-MT2-7B-Q8_0.gguf", self.output)
         self.assertIsNone(process.poll())
         self.assertFalse(self.record.exists())
 
@@ -369,6 +386,8 @@ class LauncherTests(unittest.TestCase):
 
     def test_drive_only_prompt_through_cmd(self):
         self.installation()
+        for name in ["Start-HyMT2.cmd", "start-local-hymt2.ps1"]:
+            shutil.copyfile(SCRIPTS / name, self.base / name)
         drive = next(letter + ":" for letter in "ZYXWVUTSR" if not Path(letter + ":/").exists())
         subprocess.run(["subst", drive, str(self.root)], check=True, capture_output=True)
         try:
@@ -377,7 +396,7 @@ class LauncherTests(unittest.TestCase):
                 "/d",
                 "/c",
                 "call",
-                str(SCRIPTS / "Start-HyMT2.cmd"),
+                str(self.base / "Start-HyMT2.cmd"),
                 "-LogRoot",
                 str(self.logs),
                 "-Port",
