@@ -1,9 +1,29 @@
 # 第二阶段实现与验证记录
 
-日期：2026-10-09（北京时间）。第二阶段分支：`feat/local-hy-mt2-translation`。
+更新日期：2026-10-11（北京时间）。第二阶段分支：`feat/local-hy-mt2-translation`。
 草稿 PR：[第二阶段增量 #4](https://github.com/Marcus515J/mdcx/pull/4)，基于第一阶段分支，未合并主分支。
 
-## 成品及源码
+## 当前测试版：复盘问题修正
+
+- [新版 Windows EXE](https://github.com/Marcus515J/mdcx/releases/download/test-20261011-local-hymt2-reviewfix/MDCx-test-20261011-local-hymt2-reviewfix-windows-x86_64.exe)；[双击启动包 ZIP](https://github.com/Marcus515J/mdcx/releases/download/test-20261011-local-hymt2-reviewfix/MDCx-HyMT2-launcher.zip)。
+- [发布页面](https://github.com/Marcus515J/mdcx/releases/tag/test-20261011-local-hymt2-reviewfix)；源码 `7734622d7f5f1c828e97a7493c82543cb06a3a1d`，标签 `test-20261011-local-hymt2-reviewfix`。
+- EXE：153234105 字节；SHA256 `bc89e82fb9ea405e6aaadf64ddb59fadc6ac5b9a4b80194d05d6c669c6e5bf7e`。
+- 启动 ZIP：7487 字节；SHA256 `e7cbd79160993f92eace47e757bbfe0fa3ec8f48f08ad88b05aa299bab619bf1`。
+- [Windows 验证、构建和上传](https://github.com/Marcus515J/mdcx/actions/runs/38111448545)：程序测试 **181 项通过（71.65 秒）**；Windows PowerShell 5.1 启动器 **22 项通过（81.099 秒）**，两个附件上传成功。
+- Linux 本次翻译、回退和设置验证 **68 项通过（15.06 秒）**；ruff 和差异检查通过。已有 zhconv/pkg_resources 弃用警告未修改。
+- 已重新下载两份 Release 附件，核对大小和完整 SHA256；EXE 为 Windows x86_64，ZIP 完整且三份文件与已测试启动器源码一致。
+
+修正复用已有服务的操作顺序：先点本机预设，再填写实际模型名，最后保存，避免预设覆盖已填写名称。
+汇总按标题/简介分别列出实际译文和保留原文；全部保留时显示“未获得译文”，部分成功显示“部分翻译完成”。
+简介没有获得译文时保留原来源，避免在新输出中错误标记为 LLM 提供翻译；没有读取或改写用户已有 NFO。
+新增验证覆盖全部/部分/完整译文、关闭标题翻译、简介来源及默认/不同服务模型名的启动说明。
+已验收清理核心逻辑、配置迁移和依赖未改。草稿 PR 保留未合并。
+
+下一步先验证用户本机能查找并加载模型，再使用少量媒体副本测试翻译和回退。
+真实 Hy-MT2/GPU 与真实备用 API 尚未验收；“服务已就绪”表示加载/接口检查通过，翻译结果需要再验证。
+启动器每次重新查找，多份安装可能需要选择序号；本次未加入路径缓存或自动修改用户配置。
+
+## 初版成品及源码（历史记录）
 
 - [Windows 测试版与启动脚本](https://github.com/Marcus515J/mdcx/releases/tag/test-20261009-local-hymt2)
 - [EXE 直接下载](https://github.com/Marcus515J/mdcx/releases/download/test-20261009-local-hymt2/MDCx-test-20261009-local-hymt2-windows-x86_64.exe)
