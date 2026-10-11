@@ -7,10 +7,10 @@
 
 - [Windows 测试版与启动脚本](https://github.com/Marcus515J/mdcx/releases/tag/test-20261009-local-hymt2)
 - [EXE 直接下载](https://github.com/Marcus515J/mdcx/releases/download/test-20261009-local-hymt2/MDCx-test-20261009-local-hymt2-windows-x86_64.exe)
-- [启动脚本直接下载](https://github.com/Marcus515J/mdcx/releases/download/test-20261009-local-hymt2/start-local-hymt2.ps1)
+- [新版双击启动包](https://github.com/Marcus515J/mdcx/releases/tag/launcher-20261011-autofind)：解压后双击 `Start-HyMT2.cmd`，只需输入盘符。旧版单独 PS1 需要选择文件，已由新启动包替代。
 - 构建源码：`6c25252cbc5f96b487b5abf7828a7e07b54ac7c7`，标签：`test-20261009-local-hymt2`。
 - EXE：153234693 字节；SHA256：`1be6ee9ab1cfccb786c5adc8c601b743b120464057c6038dc6ce962407ceebf7`。
-- 脚本：1632 字节；SHA256：`fae808e075723977a30528459c54fbc31f48a7ccdabcb6f029f5dd07941a26d4`。
+- 初版脚本（历史资产，勿再使用）：1632 字节；SHA256：`fae808e075723977a30528459c54fbc31f48a7ccdabcb6f029f5dd07941a26d4`。
 - [Windows CI 测试、构建和上传](https://github.com/Marcus515J/mdcx/actions/runs/37939810767)：成功。
 
 第一阶段已验收提交 `fe491f7` 和成品标签 `test-20261009-unified-cleanup` 保留。
@@ -47,10 +47,10 @@ Windows CI 在最终源码使用锁定依赖：**176 passed, 1 warning in 77.70s
 
 ## 未覆盖及本机验证
 
-真实 Hy-MT2/GPU、真实备用 API、用户 Windows 安装路径、启动文件选择对话框、实际私人配置迁移、真实旧 NFO 拒绝语仍未验证。
+真实 Hy-MT2/GPU、真实备用 API、用户 Windows 实际安装和 GPU 加载、实际私人配置迁移、真实旧 NFO 拒绝语仍未验证。
 Linux 主题/缩放截图和 Windows 无显示测试不等于用户 Windows 桌面人工验收。
 
-请从 Release 下载 EXE 与脚本。运行脚本选择海南鸡已有的 llama-server.exe 和 Hy-MT2 GGUF，等待服务加载完成并保持窗口打开；
-在翻译页点击本机预设，填写自己的备用配置，再点击底部“保存”。完成后在服务窗口按 Ctrl+C 释放显存。
+请下载 EXE 与新版启动 ZIP。整个解压后双击 `Start-HyMT2.cmd`，输入大概安装在哪个盘，自动查找安装；等待显示“服务已就绪”并保持窗口打开；
+在翻译页点击本机预设，填写自己的备用配置，再点击底部“保存”。完成后在服务窗口按回车停止本次启动的模型并释放显存。
 停止本机服务可验证异常转备用；清空备用地址保存可验证最终保留原文。拒绝路径使用既有检测，不改写提示词强迫模型拒绝。
 详细启动、配置与请求次数说明见 [llm-refusal.md](llm-refusal.md)；私人 JSON、Key、Cookie 无需上传。

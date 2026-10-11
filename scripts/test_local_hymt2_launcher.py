@@ -224,7 +224,7 @@ class LauncherTests(unittest.TestCase):
             args,
             [
                 "-m",
-                str(model),
+                str(model.resolve()),
                 "-ngl",
                 "999",
                 "-c",
@@ -252,7 +252,7 @@ class LauncherTests(unittest.TestCase):
         _, model = self.installation(record=False)
         (model.parent / "HY-MT2-7B-Q4_K_M.gguf").write_bytes(b"GGUFmock")
         self.assertEqual(self.run_launcher().returncode, 0, self.output)
-        self.assertIn(str(model), self.record.read_text(encoding="utf-8"))
+        self.assertIn(str(model.resolve()), self.record.read_text(encoding="utf-8"))
         self.assert_stopped()
 
     def test_stale_record_falls_back(self):
