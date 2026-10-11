@@ -15,16 +15,13 @@ from PyQt6.QtWidgets import (
 
 from mdcx.config.manager import manager
 
+from .settings_layout import group_layout, normalize_controls, setting_row, stack_settings_page
+
 
 def setup_file_cleanup_settings(window):
     ui = window.Ui
     group = ui.groupBox_61
-    added_height = 775 - group.height()
-    group.resize(group.width(), 775)
-    ui.groupBox_9.move(ui.groupBox_9.x(), ui.groupBox_9.y() + added_height)
     page = ui.scrollAreaWidgetContents_guaxiaomulu
-    page.resize(page.width(), page.height() + added_height)
-    page.setMinimumHeight(page.height())
     ui.checkBox_i_understand_clean.hide()
     ui.checkBox_i_agree_clean.hide()
     ui.label_199.setText("启用规则任一命中即清理；完整文件名严格相等，包含词忽略空白和大小写。")
@@ -33,35 +30,24 @@ def setup_file_cleanup_settings(window):
     ui.lineEdit_clean_file_name.setToolTip("填写完整文件名（含扩展名），多个用 | 分隔；空格与大小写必须一致")
     ui.lineEdit_clean_file_size.setToolTip("只作用于无番号视频；0 表示关闭，不因文档很小而清理文档")
     # Extend the existing grid so old and new labels/fields share the same columns.
-    ui.gridLayoutWidget_34.resize(661, 510)
     grid = ui.gridLayout_52
-    field_style = ui.lineEdit_clean_file_name.styleSheet()
+    layout = group_layout(group, ui.gridLayoutWidget_34)
 
     def row(index, text, control):
-        label = QLabel(text, ui.gridLayoutWidget_34)
-        label.setMinimumWidth(130)
-        label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        grid.addWidget(label, index, 0)
-        if isinstance(control, QHBoxLayout):
-            grid.addLayout(control, index, 1)
-        else:
-            control.setMinimumHeight(30)
-            grid.addWidget(control, index, 1)
+        setting_row(grid, index, text, control)
 
     ui.checkBox_clean_dry_run = QCheckBox("演练：只记录，不移动或删除")
     row(8, "运行模式：", ui.checkBox_clean_dry_run)
     ui.comboBox_clean_action = QComboBox()
     ui.comboBox_clean_action.setObjectName("comboBox_clean_action")
     ui.comboBox_clean_action.addItems(["移到 _待删（可恢复）", "永久删除匹配的单文件（无法恢复）"])
-    ui.comboBox_clean_action.setStyleSheet("QComboBox {" + field_style + "}")
     row(9, "处理方式：", ui.comboBox_clean_action)
     ui.lineEdit_clean_directory = QLineEdit()
     ui.lineEdit_clean_directory.setObjectName("lineEdit_clean_directory")
     ui.lineEdit_clean_directory.setMinimumHeight(30)
-    ui.lineEdit_clean_directory.setStyleSheet(field_style)
     ui.lineEdit_clean_directory.setPlaceholderText("留空：源文件盘符根目录下的 _待删")
     select = QPushButton("选择目录…")
-    select.setFixedSize(110, 30)
+    select.setMinimumHeight(30)
 
     def select_directory():
         result = QFileDialog.getExistingDirectory(window, "选择待删目录", ui.lineEdit_clean_directory.text())
@@ -77,7 +63,6 @@ def setup_file_cleanup_settings(window):
     row(11, "域名规则：", ui.checkBox_clean_domain)
     ui.doubleSpinBox_clean_video_size = QDoubleSpinBox()
     ui.doubleSpinBox_clean_video_size.setObjectName("doubleSpinBox_clean_video_size")
-    ui.doubleSpinBox_clean_video_size.setStyleSheet(field_style)
     ui.doubleSpinBox_clean_video_size.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
     ui.doubleSpinBox_clean_video_size.setRange(0, 999999999)
     ui.doubleSpinBox_clean_video_size.setDecimals(2)
@@ -87,7 +72,7 @@ def setup_file_cleanup_settings(window):
 
     help_panel = QWidget(group)
     help_panel.setObjectName("fileCleanupOptions")
-    help_panel.setGeometry(20, 568, 661, 95)
+    layout.addWidget(help_panel)
     help_layout = QGridLayout(help_panel)
     help_layout.setContentsMargins(0, 0, 0, 0)
     help_layout.setHorizontalSpacing(24)
@@ -106,12 +91,19 @@ def setup_file_cleanup_settings(window):
     note = QLabel("普通文档不会仅因体积小被清理。手动清理无需刮削；设置使用页面底部“保存”。", help_panel)
     note.setWordWrap(True)
     help_layout.addWidget(note, 1, 0, 1, 2)
-    ui.checkBox_auto_clean.setGeometry(20, 680, 240, 40)
+    actions = QHBoxLayout()
+    actions.setSpacing(12)
+    actions.addWidget(ui.checkBox_auto_clean)
+    actions.addWidget(ui.pushButton_check_and_clean_files, 1)
+    layout.addLayout(actions)
     ui.checkBox_auto_clean.setEnabled(True)
-    ui.pushButton_check_and_clean_files.setGeometry(310, 680, 370, 40)
+    ui.pushButton_check_and_clean_files.setText("检查待刮削目录并清理文件")
     ui.pushButton_check_and_clean_files.setEnabled(True)
-    ui.label_271.setGeometry(20, 728, 661, 32)
+    layout.addWidget(ui.label_271)
+    ui.label_271.setWordWrap(True)
     ui.label_271.setMinimumWidth(0)
+    normalize_controls(group)
+    stack_settings_page(page)
 
     def sync_size(text):
         try:

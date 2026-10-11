@@ -69,8 +69,8 @@ class TranslateConfig(BaseModel):
     baidu_key: str = Field(default="", title="百度密钥")
     deepl_key: str = Field(default="", title="DeepL API Key")
     deeplx_url: str = Field(default="", title="DeepLX URL")
-    llm_url: HttpUrl = Field(default=HttpUrl("http://127.0.0.1:8080/v1"), title="LLM API Host")
-    llm_model: str = Field(default="HY-MT2-7B-Q8_0", title="模型 ID")
+    llm_url: HttpUrl = Field(default=HttpUrl("https://api.deepseek.com/v1"), title="LLM API Host")
+    llm_model: str = Field(default="deepseek-chat", title="模型 ID")
     llm_key: str = Field(default="", title="LLM API Key")
     llm_prompt_title: str = Field(
         default="Please translate the following text to {lang}. Output only the translation without any explanation.\n{content}",
@@ -82,8 +82,8 @@ class TranslateConfig(BaseModel):
     )
     llm_read_timeout: int = Field(default=60, title="LLM 读取超时 (秒)", description="LLM 生成耗时较长, 建议设置较大值")
     llm_max_req_sec: float = Field(default=1, title="LLM 每秒最大请求数")
-    llm_max_try: int = Field(default=5, title="LLM 最大尝试次数")
-    llm_temperature: float = Field(default=0.2, title="LLM 温度")
+    llm_max_try: int = Field(default=1, title="LLM 最大尝试次数")
+    llm_temperature: float = Field(default=0.9, title="LLM 温度")
     llm_refusal_prefixes: list[str] = Field(
         default_factory=lambda: [
             "抱歉",
@@ -106,6 +106,9 @@ class TranslateConfig(BaseModel):
     llm_fallback_key: str = Field(default="", title="备用 LLM API Key")
     llm_fallback_model: str = Field(default="", title="备用 LLM 模型 ID")
     llm_fallback_read_timeout: int = Field(default=60, gt=0, title="备用 LLM 超时（秒）")
+    local_model_search_root: str = Field(default="", title="本机模型查找盘符或目录")
+    local_model_server_path: str = Field(default="", title="本机 llama-server 程序路径")
+    local_model_path: str = Field(default="", title="本机 Hy-MT2 模型路径")
 
     @field_validator("llm_fallback_url", mode="before")
     @classmethod

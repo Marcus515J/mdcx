@@ -800,6 +800,8 @@ class MyMAinWindow(QMainWindow):
                 signal_qt.show_traceback_log(traceback.format_exc())
         if hasattr(self, "preview_image_loader"):
             self.preview_image_loader.shutdown()
+        if hasattr(self, "local_model_controller"):
+            self.local_model_controller.shutdown()
         if hasattr(self, "tray_icon"):
             self.tray_icon.hide()
         signal_qt.show_traceback_log("\n\n\n\n************ 程序正常退出！************\n")

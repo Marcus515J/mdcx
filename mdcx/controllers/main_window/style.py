@@ -71,6 +71,73 @@ def get_theme_tokens(dark: bool) -> dict[str, str]:
     return _tokens(dark)
 
 
+def build_settings_control_style(dark: bool) -> str:
+    tokens = get_theme_tokens(dark)
+    return f"""
+        QGroupBox[settingsPanel="true"] {{
+            background: {tokens["surface"]};
+        }}
+        QGroupBox[settingsPanel="true"] QLineEdit,
+        QGroupBox[settingsPanel="true"] QTextEdit,
+        QGroupBox[settingsPanel="true"] QSpinBox,
+        QGroupBox[settingsPanel="true"] QDoubleSpinBox {{
+            font-size: 14px;
+            color: {tokens["text"]};
+            background: {tokens["window"]};
+            border: 1px solid {tokens["border"]};
+            border-radius: 10px;
+            padding: 4px 8px;
+        }}
+        QGroupBox[settingsPanel="true"] QLineEdit:focus,
+        QGroupBox[settingsPanel="true"] QTextEdit:focus,
+        QGroupBox[settingsPanel="true"] QSpinBox:focus,
+        QGroupBox[settingsPanel="true"] QDoubleSpinBox:focus {{
+            border-color: {tokens["accent"]};
+        }}
+        QGroupBox[settingsPanel="true"] QLineEdit:disabled,
+        QGroupBox[settingsPanel="true"] QSpinBox:disabled,
+        QGroupBox[settingsPanel="true"] QDoubleSpinBox:disabled {{
+            color: {tokens["text_disabled"]};
+        }}
+        QGroupBox[settingsPanel="true"] QComboBox {{
+            font-size: 14px;
+            color: {tokens["text"]};
+            background: {tokens["window"]};
+            border: 1px solid {tokens["border"]};
+            border-radius: 8px;
+        }}
+        QGroupBox[settingsPanel="true"] QSpinBox QLineEdit,
+        QGroupBox[settingsPanel="true"] QDoubleSpinBox QLineEdit,
+        QGroupBox[settingsPanel="true"] QComboBox QLineEdit {{
+            border: 0;
+            border-radius: 0;
+            background: transparent;
+            padding: 0;
+        }}
+        QPushButton[settingsAction="true"] {{
+            font-size: 14px;
+            color: {tokens["text"]};
+            background: {tokens["surface"]};
+            border: 1px solid {tokens["border"]};
+            border-radius: 8px;
+            padding: 4px 8px;
+        }}
+        QPushButton[settingsAction="true"]:hover {{
+            border-color: {tokens["accent_hover"]};
+        }}
+        QPushButton[settingsAction="true"]:pressed {{
+            color: {tokens["selection_text"]};
+            background: {tokens["selection_bg"]};
+            border-color: {tokens["accent_pressed"]};
+        }}
+        QPushButton[settingsAction="true"]:disabled {{
+            color: {tokens["text_disabled"]};
+            border-color: {tokens["border"]};
+            background: {tokens["surface_muted"]};
+        }}
+    """
+
+
 def apply_application_palette(dark: bool) -> None:
     app = QApplication.instance()
     if app is None:
@@ -716,6 +783,7 @@ def set_style(self: "MyMAinWindow"):
         """)
     )
     self.Ui.treeWidget_number.setStyleSheet(build_tree_widget_style(False))
+    self.Ui.page_setting.setStyleSheet(self.Ui.page_setting.styleSheet() + build_settings_control_style(False))
 
 
 def set_dark_style(self: "MyMAinWindow"):
@@ -1185,3 +1253,4 @@ def set_dark_style(self: "MyMAinWindow"):
         """)
     )
     self.Ui.treeWidget_number.setStyleSheet(build_tree_widget_style(True))
+    self.Ui.page_setting.setStyleSheet(self.Ui.page_setting.styleSheet() + build_settings_control_style(True))
