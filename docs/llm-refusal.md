@@ -24,18 +24,24 @@
 
 ## Windows 启动与设置
 
-Release Assets 同时提供 EXE 和 `start-local-hymt2.ps1`。脚本不下载任何模型或依赖，复用海南鸡已装文件。
-右键脚本“使用 PowerShell 运行”，依次选择已有 `llama-server.exe` 和 Hy-MT2 `.gguf`。
-如果系统阻止脚本，可在脚本目录运行：
+下载新的 [本机启动包](https://github.com/Marcus515J/mdcx/releases/tag/launcher-20261011-autofind)，将 ZIP 整个解压后双击 **`Start-HyMT2.cmd`**，不要双击 PS1。
+输入大概安装在哪个盘，例如 `H`；不确定可输入 `D E H`。不需要选择程序或模型文件。
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\start-local-hymt2.ps1
-```
+启动器优先查找海南鸡安装脚本留下的 `stage2_runtime.json`，读取其中的程序/模型路径；
+安装记录失效或不存在时，扫描所选盘上的 `llama-server.exe` 和 Hy-MT2 GGUF。
+扫描跳过链接、系统保护目录和 `_待删`；只读取安装记录与文件头，不读取私人配置或 NFO。
+大盘可能需要几分钟，查找和加载时会显示进度。
 
-这里的 PowerShell 参数只用于运行本地启动脚本。等待窗口显示模型加载完成，保持窗口打开，再开始 MDCx 刮削。
-结束后在该窗口按 Ctrl+C 停止服务、释放显存。不要同时启动海南鸡的另一个 8080 服务。
-已知路径时也可通过 `-LlamaServerPath` 和 `-ModelPath` 指定，路径含空格应加引号。
-脚本固定监听回环地址 8080，使用与海南鸡一致的 `-ngl 999 -c 8192`，设置模型别名供 MDCx 使用。
+等窗口显示“服务已就绪”，保持窗口打开，再开始 MDCx 刮削。
+结束后在窗口按回车停止本次启动的模型、释放显存。
+失败时显示原因、服务日志尾部和完整日志目录，窗口保留到你按键关闭。
+日志通常在解压目录的 `logs`，只读目录会回退到本机 `%LOCALAPPDATA%\MDCx-HyMT2\logs`。
+双击入口使用 Windows 自带的 PowerShell 5.1，只在本次进程使用 `ExecutionPolicy Bypass`，不修改系统执行策略。
+
+已就绪的 Hy-MT2 服务会直接复用，不关闭其他程序启动的服务。端口被其他服务占用时显示原因；若海南鸡正在加载，等加载结束后重试。
+复用服务的模型名称若不同于默认别名，窗口会显示需要填写的实际名称。
+启动包不下载任何模型或依赖，复用海南鸡已装文件。
+脚本默认只监听回环地址 8080，使用与海南鸡一致的 `-ngl 999 -c 8192`，设置模型别名供 MDCx 使用。
 MDCx 本身连接已启动服务，不自动管理 GPU 进程。
 
 在同页填写备用地址、模型、Key 和读取超时，点击页面底部“保存”。例如 DeepSeek 的 OpenAI 兼容基址
