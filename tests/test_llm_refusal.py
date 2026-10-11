@@ -35,6 +35,7 @@ def llm(monkeypatch):
         print(message)
 
     monkeypatch.setattr(translation.signal, "add_log", record)
+    monkeypatch.setattr(core_translation.LogBuffer, "log", lambda: SimpleNamespace(write=record))
 
     async def ask(**kwargs):
         calls.append(("primary", kwargs))
@@ -180,3 +181,41 @@ async def test_local_model_precedes_other_enabled_engines_and_preserves_failed_f
     assert data.outline == SOURCE_OUTLINE
     assert len(calls) == 3
     assert all(kwargs["max_try"] == 1 for kind, kwargs in calls if kind == "primary")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", ["both_preserved", "title_only", "outline_only", "both_translated", "title_disabled"]
+)
+async def test_translation_summary_and_outline_provenance_match_actual_fields(llm, outcome):
+    cfg, answers, _, _, logs, _ = llm
+    if outcome in {"both_preserved", "outline_only"}:
+        answers[SOURCE_TITLE] = [None, None]
+    if outcome in {"outline_only", "both_translated", "title_disabled"}:
+        answers[SOURCE_OUTLINE] = ["译后的简介"]
+    if outcome == "title_disabled":
+        cfg.get_field_config(CrawlerResultFields.TITLE).translate = False
+        cfg.get_field_config(CrawlerResultFields.TITLE).language = Language.JP
+    data = CrawlersResult.empty()
+    data.title, data.outline = SOURCE_TITLE, SOURCE_OUTLINE
+    data.outline_from = "原站点"
+    await core_translation.translate_title_outline(data, "", "ABC-123")
+    summary = logs[-1]
+    assert "Translation done" not in summary
+    if outcome == "both_preserved":
+        assert "未获得译文" in summary and "保留原文：标题、简介" in summary
+        assert "翻译完成" not in summary
+        assert data.title == SOURCE_TITLE and data.outline == SOURCE_OUTLINE
+    elif outcome == "title_only":
+        assert "部分翻译完成" in summary and "已翻译：标题；保留原文：简介" in summary
+        assert data.title == "译后的标题" and data.outline == SOURCE_OUTLINE
+    elif outcome == "outline_only":
+        assert "部分翻译完成" in summary and "已翻译：简介；保留原文：标题" in summary
+        assert data.title == SOURCE_TITLE and data.outline == "译后的简介"
+    elif outcome == "both_translated":
+        assert "翻译完成" in summary and "已翻译：标题、简介" in summary and "保留原文" not in summary
+    else:
+        assert "翻译完成" in summary and "已翻译：简介" in summary
+        assert "标题" not in summary and "保留原文" not in summary
+        assert data.title == SOURCE_TITLE
+    assert data.outline_from == ("原站点" if outcome in {"both_preserved", "title_only"} else Translator.LLM)

@@ -284,9 +284,12 @@ try {
     }
     Write-Status "服务已就绪：$baseUrl"
     if ($existing -and $existing -cne $modelAlias) {
-        Write-Status "该服务模型名为 $existing，请在 MDCx 主模型一栏填写这个名称。"
+        Write-Status '打开 MDCx：设置 → 翻译 → LLM 翻译，先点击“使用本机 Hy-MT2（海南鸡接口）”。'
+        Write-Status "再将主模型名改为：$existing"
+        Write-Status '最后点击页面底部“保存”，然后开始刮削。'
+    } else {
+        Write-Status "打开 MDCx：设置 → 翻译 → 本机 Hy-MT2 预设 → 保存，然后开始刮削。"
     }
-    Write-Status "打开 MDCx：设置 → 翻译 → 本机 Hy-MT2 预设 → 保存，然后开始刮削。"
     if (-not $NonInteractive) {
         if ($ownedServer) {
             Write-Status "使用期间保持本窗口打开；结束后在本窗口按回车，停止本次启动的模型并释放显存。"

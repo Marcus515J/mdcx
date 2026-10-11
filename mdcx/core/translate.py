@@ -310,8 +310,28 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
             if result.translated_outline:
                 json_data.outline = result.outline
                 outline_translation_applied = True
-            LogBuffer.log().write(f"\n 🍀 Translation done!({each.capitalize()})({get_used_time(start_time)}s)")
-            json_data.outline_from = each
+                json_data.outline_from = each
+            translated_fields = [
+                name
+                for name, applied in (("标题", result.translated_title), ("简介", result.translated_outline))
+                if applied
+            ]
+            preserved_fields = [
+                name
+                for name, source, applied in (
+                    ("标题", trans_title, result.translated_title),
+                    ("简介", trans_outline, result.translated_outline),
+                )
+                if source and not applied
+            ]
+            if translated_fields:
+                status = "部分翻译完成" if preserved_fields else "翻译完成"
+                details = "已翻译：" + "、".join(translated_fields)
+            else:
+                status, details = "未获得译文", ""
+            if preserved_fields:
+                details += ("；" if details else "") + "保留原文：" + "、".join(preserved_fields)
+            LogBuffer.log().write(f"\n 📝 {status}({each.capitalize()})({get_used_time(start_time)}s) | {details}")
             break
         else:
             LogBuffer.log().write(

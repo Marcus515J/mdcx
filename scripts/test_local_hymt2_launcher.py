@@ -311,6 +311,9 @@ class LauncherTests(unittest.TestCase):
         self.assertEqual(self.run_launcher().returncode, 0, self.output)
         self.assertIn("直接使用", self.output)
         self.assertIn("HY-MT2-other", self.output)
+        self.assertIn("先点击", self.output)
+        self.assertIn("再将主模型名改为：HY-MT2-other", self.output)
+        self.assertLess(self.output.index("先点击"), self.output.index("再将主模型名改为"))
         self.assertIsNone(process.poll())
         self.assertFalse(self.record.exists())
 
@@ -318,6 +321,15 @@ class LauncherTests(unittest.TestCase):
         process = self.start_external("C:/models/HY-MT2-7B-Q8_0.gguf")
         self.assertEqual(self.run_launcher().returncode, 0, self.output)
         self.assertIn("C:/models/HY-MT2-7B-Q8_0.gguf", self.output)
+        self.assertIn("再将主模型名改为：C:/models/HY-MT2-7B-Q8_0.gguf", self.output)
+        self.assertIsNone(process.poll())
+        self.assertFalse(self.record.exists())
+
+    def test_existing_service_with_default_alias_needs_only_preset(self):
+        process = self.start_external("HY-MT2-7B-Q8_0")
+        self.assertEqual(self.run_launcher().returncode, 0, self.output)
+        self.assertIn("本机 Hy-MT2 预设", self.output)
+        self.assertNotIn("再将主模型名改为", self.output)
         self.assertIsNone(process.poll())
         self.assertFalse(self.record.exists())
 
