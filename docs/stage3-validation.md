@@ -34,7 +34,7 @@ Windows CI 还会运行同组测试；模型管理的 Windows 测试使用编译
 
 Windows 首轮 [38144058352](https://github.com/Marcus515J/mdcx/actions/runs/38144058352)：210 通过、1 失败，126.01 秒。早退测试的 1 秒预算碰到 Windows 健康请求等待，超时前未复查进程退出；已补充健康检查后的进程检查，并将早退用例预算改为 5 秒，加载超时用例仍为 1 秒。未构建或发布首轮 EXE。
 
-使用步骤见 [Windows 测试指南](windows-test-guide.md)。修正后的 Windows CI、资产和完整下载校验结果将在构建完成后补入本记录。
+使用步骤见 [Windows 测试指南](windows-test-guide.md)。修正后的 Windows CI、资产和完整下载校验结果见下节。
 
 ## Windows 测试版与完整下载核验
 
