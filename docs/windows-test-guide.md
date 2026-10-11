@@ -1,5 +1,9 @@
 # MDCx Windows 第二阶段测试版：本机 Hy-MT2 与备用回退
 
+**2026-10-11 用户已验证本机调用，并改为云端优先、本机备用。
+现有 EXE 无需替换，最新配置和验收步骤见 [云端优先说明](https://github.com/Marcus515J/mdcx/blob/feat/local-hy-mt2-translation/docs/cloud-first-local-fallback.md)。
+下方本机优先的步骤为此前用法，最新方案不要再点击“使用本机 Hy-MT2”主接口预设。**
+
 这是独立预发布测试版，接续已验收的垃圾清理版本，只收尾清理页外观并完善本机翻译与备用设置。正式版和主分支未替换。
 
 ## 第二阶段先测这些

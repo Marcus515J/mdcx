@@ -202,6 +202,103 @@ async def test_service_not_started_preserves_source(monkeypatch):
         await primary.close()
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    ["normal", "retry", "refusal", "error", "disconnected", "timeout", "empty", "local_error", "local_refusal"],
+)
+async def test_cloud_primary_with_keyless_local_fallback(server, monkeypatch, path):
+    """The existing configuration can reverse the chain without changing the application."""
+    url, local_replies, local_calls = server
+    source, expected = "日本語の題名", "测试译文"
+    refusal = "抱歉，我无法完成翻译。"
+    cloud_replies = [expected] if path == "normal" else [refusal, expected] if path == "retry" else [refusal, refusal]
+    if path not in {"normal", "retry"}:
+        local_replies[:] = ["error" if path == "local_error" else refusal if path == "local_refusal" else expected]
+    if path in {"local_error", "local_refusal"}:
+        expected = source
+    cfg = Config(
+        use_proxy=True,
+        proxy="http://127.0.0.1:1",
+        translate_config=TranslateConfig(
+            translate_by=[Translator.LLM],
+            llm_url="https://cloud.example.com/v1",
+            llm_model="cloud-model",
+            llm_key="synthetic-cloud-key",
+            llm_max_try=1,
+            llm_refusal_retries=1,
+            llm_fallback_url=url + "/v1",
+            llm_fallback_model="HY-MT2-7B-Q8_0",
+            llm_fallback_key="",
+            llm_max_req_sec=100,
+        ),
+    )
+    monkeypatch.setattr(translation.manager, "config", cfg)
+    logs, cloud_calls = [], []
+    monkeypatch.setattr(translation.signal, "add_log", logs.append)
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+        monkeypatch.setenv(name, "http://127.0.0.1:1")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+
+    async def cloud_transport(request):
+        # Local inference must not start before the cloud's two attempts finish.
+        assert not local_calls
+        cloud_calls.append(json.loads(request.content))
+        assert request.url.host == "cloud.example.com"
+        assert request.headers["Authorization"] == "Bearer synthetic-cloud-key"
+        if path == "disconnected":
+            raise httpx.ConnectError("mock offline", request=request)
+        if path == "timeout":
+            raise httpx.ReadTimeout("mock timeout", request=request)
+        if path == "error":
+            return httpx.Response(503, json={"error": {"message": "mock unavailable"}})
+        content = " " if path == "empty" else cloud_replies.pop(0)
+        return httpx.Response(
+            200,
+            json={
+                "id": "mock",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "cloud-model",
+                "choices": [
+                    {"index": 0, "message": {"role": "assistant", "content": content}, "finish_reason": "stop"}
+                ],
+            },
+        )
+
+    primary = LLMClient(
+        api_key=cfg.translate_config.llm_key,
+        base_url=str(cfg.translate_config.llm_url),
+        timeout=httpx.Timeout(2),
+        rate=(100, 1),
+    )
+    await primary.client._client.aclose()
+    primary.client._client = httpx.AsyncClient(transport=httpx.MockTransport(cloud_transport), trust_env=False)
+
+    @asynccontextmanager
+    async def lease():
+        yield SimpleNamespace(llm_client=primary)
+
+    monkeypatch.setattr(translation.manager, "acquire_computed", lease)
+    try:
+        assert translation.get_translator_skip_reason(Translator.LLM) is None
+        assert await translation._llm_translate(source, "Translate to {lang}: {content}") == expected
+    finally:
+        await primary.close()
+    assert len(cloud_calls) == (1 if path == "normal" else 2)
+    assert all(body["model"] == "cloud-model" for body in cloud_calls)
+    assert len(local_calls) == (0 if path in {"normal", "retry"} else 1)
+    assert not local_replies
+    if local_calls:
+        endpoint, body = local_calls[0]
+        assert endpoint == "/v1/chat/completions"
+        assert body["model"] == "HY-MT2-7B-Q8_0"
+        assert body["messages"] == cloud_calls[0]["messages"]
+        assert body["temperature"] == cloud_calls[0]["temperature"]
+    assert ("🔄 换备用模型" in logs) == bool(local_calls)
+    assert ("📝 保留原文" in logs) == (expected == source)
+
+
 @pytest.mark.parametrize(
     "url,local",
     [

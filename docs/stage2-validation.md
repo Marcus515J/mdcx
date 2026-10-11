@@ -3,6 +3,18 @@
 更新日期：2026-10-11（北京时间）。第二阶段分支：`feat/local-hy-mt2-translation`。
 草稿 PR：[第二阶段增量 #4](https://github.com/Marcus515J/mdcx/pull/4)，基于第一阶段分支，未合并主分支。
 
+## 最新决定：云端优先，本机备用
+
+用户已实际验证本机模型加载和推理，MDCx 三条任务全部完成标题/简介翻译。
+随后用户将优先级调整为 **云端 API → 同模型重试 → 本机 Hy-MT2 → 对应字段原文**。
+现有测试版通过修改主/备用配置即可实现，不修改程序或第一阶段逻辑，不重建 EXE。
+具体配置、旧启动器提示的处理及后续验收见 [云端优先使用说明](cloud-first-local-fallback.md)。
+以下本机优先的实现和验证内容保留为历史记录；最新操作顺序以该说明为准。
+真实云端优先以及故障切换到本机，仍需用户配置后实测。
+本次 Linux 验证：翻译、拒绝回退、设置和 SDK/HTTP 测试 **77 项通过（22.29 秒）**，
+其中新增云端优先/无 Key 本机备用的 9 条路径；ruff 和差异检查通过。
+只新增验证及更新使用说明，沿用已发布 Windows EXE 和启动器，未宣称重新构建或执行新的 Windows 测试。
+
 ## 当前测试版：复盘问题修正
 
 - [新版 Windows EXE](https://github.com/Marcus515J/mdcx/releases/download/test-20261011-local-hymt2-reviewfix/MDCx-test-20261011-local-hymt2-reviewfix-windows-x86_64.exe)；[双击启动包 ZIP](https://github.com/Marcus515J/mdcx/releases/download/test-20261011-local-hymt2-reviewfix/MDCx-HyMT2-launcher.zip)。
