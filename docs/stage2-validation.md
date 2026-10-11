@@ -52,7 +52,9 @@ Windows CI 在最终源码使用锁定依赖：**176 passed, 1 warning in 77.70s
 窗口显示查找、加载进度；健康接口确认模型加载完成才显示就绪；失败保留窗口、服务日志和日志路径。
 脚本使用 UTF-8 BOM，CMD 使用 UTF-8/CRLF；通过 .NET 的完整路径启动程序，避免 Windows PowerShell 5.1 的方括号路径解析问题。
 
-源码：`fb6ba96d449c26abb79a1481caa8f675f1d43dff`。
+源码：`fb6ba96d449c26abb79a1481caa8f675f1d43dff`；发布标签：`launcher-20261011-autofind`。
+[发布测试、打包与上传](https://github.com/Marcus515J/mdcx/actions/runs/38109272642)成功：21 项全部通过，81.832 秒。
+已重新下载实际 Release 附件并检查 ZIP 完整性、三份文件与测试源码一致：7308 字节；SHA256 `15f14d9a8841376bf006327dc79f8ad55f2249c74675eea1443f08e79a59cd9e`。
 [Windows PowerShell 5.1 实测与打包](https://github.com/Marcus515J/mdcx/actions/runs/38109143864)：**21 项全部通过，81.200 秒**。
 测试实际运行独立编译的模拟服务 EXE，覆盖中文/空格/方括号/与号路径、盘符输入、安装记录及回退扫描、多模型选择、参数、真实 HTTP 就绪检查、服务退出、超时、端口冲突、已有服务复用、环境代理隔离、链接和待删目录排除、CMD 入口及解析失败/缺脚本时保留窗口。
 测试只使用临时样本，不下载模型或访问私人配置。真实 GPU 加载仍由用户电脑完成。
