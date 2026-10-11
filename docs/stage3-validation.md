@@ -35,3 +35,25 @@ Windows CI 还会运行同组测试；模型管理的 Windows 测试使用编译
 Windows 首轮 [38144058352](https://github.com/Marcus515J/mdcx/actions/runs/38144058352)：210 通过、1 失败，126.01 秒。早退测试的 1 秒预算碰到 Windows 健康请求等待，超时前未复查进程退出；已补充健康检查后的进程检查，并将早退用例预算改为 5 秒，加载超时用例仍为 1 秒。未构建或发布首轮 EXE。
 
 使用步骤见 [Windows 测试指南](windows-test-guide.md)。修正后的 Windows CI、资产和完整下载校验结果将在构建完成后补入本记录。
+
+## Windows 测试版与完整下载核验
+
+修正后 Linux 模型/界面选测 **28 通过，7.44 秒**。其余清理/翻译代码未再修改，前述首版回归结果保留。
+
+[Windows CI 38144440788](https://github.com/Marcus515J/mdcx/actions/runs/38144440788) 全部成功：程序测试 **211 通过、1 个既有警告，125.66 秒**；PowerShell 5.1 启动器 **22 通过，81.948 秒**；EXE 构建、ZIP 打包及两份资产发布成功。
+
+实际构建源码为 `41127e8a0dd1a4e6ba7c77b098b0bb4b455a84bc`，标签 `test-20261011-hymt2-ui-r1`。
+已独立读取远端标签确认指向此提交，发布元数据的 `target_commitish: master` 不代表使用主分支构建。
+后续仅补验证文档，无需再次构建。
+
+[第三阶段 Windows 测试版](https://github.com/Marcus515J/mdcx/releases/tag/test-20261011-hymt2-ui-r1)，[草稿 PR #5](https://github.com/Marcus515J/mdcx/pull/5)。未合并主分支或原验收分支。
+
+| 资产 | 字节数 | SHA256 |
+| --- | --- | --- |
+| `MDCx-test-20261011-hymt2-ui-r1-windows-x86_64.exe` | 153258051 | `b3f1495e9f83bb8085f2146d033ca201b61ff700257d3ec6dffa806c19254cd6` |
+| `MDCx-HyMT2-launcher.zip` | 7445 | `501329ab79a92b5192b7569bddb22027aa6e6c44b6b76fccc8deebac50c2babb` |
+
+两份资产已实际完整重新下载，核对 API 大小及 SHA256 摘要一致。EXE 检查为 PE AMD64，内含 `mdcx.local_model`、`local_model_settings`、`settings_layout` 模块，打包默认配置与构建源码一致。
+ZIP 完整性检查通过，三份脚本/说明与源码一致；PS1 保持 UTF-8 BOM/CRLF。
+
+当前自动验证通过，不将真实 GPU 模型使用、用户私人配置逐字段检查或 Windows 桌面外观冒充已验收。接下来的用户检查只针对软件内管理闭环和新增控件外观；已验收阶段不重做。
