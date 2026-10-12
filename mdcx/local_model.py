@@ -297,7 +297,8 @@ class LocalModelService:
             self.model_id = ""
             self.reused = False
 
-    def check(self) -> tuple[str, str]:
+    def check(self, ready: str | None = None) -> tuple[str, str]:
+        """Apply a health observation; None performs a synchronous probe first."""
         with self._lock:
             if self.process is not None and self.process.poll() is not None:
                 code = self.process.returncode
@@ -305,7 +306,8 @@ class LocalModelService:
                 self.model_id = ""
                 self._log(f"服务异常退出：{code}")
                 return "failed", f"服务异常退出（{code}），请打开日志。"
-        ready = self.ready_model()
+        if ready is None:
+            ready = self.ready_model()
         if ready:
             self.model_id = ready
             return "ready", ("本软件管理" if self.owned else "外部服务，不能在此停止") + "：" + ready

@@ -147,7 +147,9 @@ def test_controls_fit_translation_group_and_following_groups(window, width, heig
     ui.scrollArea_11.ensureWidgetVisible(ui.pushButton_hymt2_start)
     app.processEvents()
     viewport = ui.scrollArea_11.viewport()
-    assert viewport.rect().contains(ui.pushButton_hymt2_start.mapTo(viewport, ui.pushButton_hymt2_start.rect().center()))
+    assert viewport.rect().contains(
+        ui.pushButton_hymt2_start.mapTo(viewport, ui.pushButton_hymt2_start.rect().center())
+    )
 
 
 def test_paths_save_reload_preserves_cloud_prompts_and_temperature(window, tmp_path):
@@ -209,6 +211,82 @@ def test_reused_service_sets_actual_backup_id_only(window):
     assert (ui.lineEdit_llm_url.text(), ui.lineEdit_llm_model.text(), ui.lineEdit_llm_key.text()) == primary
     assert not ui.pushButton_hymt2_stop.isEnabled()
     assert "外部服务" in ui.label_hymt2_status.text()
+
+
+@pytest.mark.parametrize("state", ["stopped", "external", "owned"])
+def test_health_poll_keeps_controls_stable_and_allows_only_one_probe(window, monkeypatch, state):
+    window, app = window
+    controller, ui = window.local_model_controller, window.Ui
+    controller.timer.stop()
+    ready = "HY-MT2-existing-id" if state != "stopped" else ""
+    controller.service.model_id = ready
+    monkeypatch.setattr(type(controller.service), "owned", property(lambda _: state == "owned"))
+    controller.refresh_buttons()
+    controls = [
+        ui.pushButton_hymt2_find,
+        ui.pushButton_hymt2_rescan,
+        ui.pushButton_hymt2_start,
+        ui.pushButton_hymt2_stop,
+        ui.pushButton_hymt2_root,
+        ui.pushButton_hymt2_server,
+        ui.pushButton_hymt2_model,
+        ui.lineEdit_hymt2_root,
+        ui.comboBox_hymt2_server,
+        ui.comboBox_hymt2_model,
+    ]
+    before = [control.isEnabled() for control in controls]
+    begun, release = threading.Event(), threading.Event()
+    calls = []
+
+    def probe():
+        calls.append(True)
+        begun.set()
+        assert release.wait(5)
+        return ready
+
+    monkeypatch.setattr(controller.service, "ready_model", probe)
+    try:
+        controller.check()
+        wait_ui(app, begun.is_set)
+        controller.check()
+        assert len(calls) == 1
+        assert not controller.busy
+        assert [control.isEnabled() for control in controls] == before
+        assert not ui.progressBar_hymt2.isVisible()
+    finally:
+        release.set()
+    wait_ui(app, lambda: not controller.checking)
+    assert [control.isEnabled() for control in controls] == before
+
+
+def test_start_during_health_poll_ignores_late_observation(window, monkeypatch):
+    window, app = window
+    controller, ui = window.local_model_controller, window.Ui
+    controller.timer.stop()
+    begun, release = threading.Event(), threading.Event()
+
+    def probe():
+        begun.set()
+        assert release.wait(5)
+        return "HY-MT2-stale-id"
+
+    def start(*args):
+        controller.service.model_id = "HY-MT2-new-id"
+        return "HY-MT2-new-id"
+
+    monkeypatch.setattr(controller.service, "ready_model", probe)
+    monkeypatch.setattr(controller.service, "start", start)
+    try:
+        controller.check()
+        wait_ui(app, begun.is_set)
+        ui.pushButton_hymt2_start.click()
+        wait_ui(app, lambda: ui.lineEdit_llm_fallback_model.text() == "HY-MT2-new-id")
+        status = ui.label_hymt2_status.text()
+    finally:
+        release.set()
+    wait_ui(app, lambda: not controller.checking)
+    assert controller.service.model_id == "HY-MT2-new-id"
+    assert ui.label_hymt2_status.text() == status
 
 
 def test_late_start_result_after_config_reload_does_not_overwrite_backup(window):

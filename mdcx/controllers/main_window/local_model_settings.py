@@ -107,6 +107,8 @@ class LocalModelController(QObject):
         self.window, self.ui = window, window.Ui
         self.service = LocalModelService()
         self.busy = ""
+        self.checking = False
+        self.operation_generation = 0
         self.closed = False
         self.config_generation = 0
         self.scraping = False
@@ -160,6 +162,7 @@ class LocalModelController(QObject):
         if self.busy or self.closed:
             return
         self.busy = operation
+        self.operation_generation += 1
         generation = self.config_generation
         self.refresh_buttons()
 
@@ -221,13 +224,34 @@ class LocalModelController(QObject):
             self._work("stop", self.service.stop)
 
     def check(self):
-        if not self.busy and not self.closed:
-            self._work("check", self.service.check)
+        if self.busy or self.closed or self.checking:
+            return
+        # Polling observes the endpoint without locking controls or mutating service
+        # state. An intervening user operation makes this observation obsolete.
+        self.checking = True
+        generation = self.operation_generation
+
+        def run():
+            try:
+                value = self.service.ready_model()
+            except Exception as exc:
+                value = exc
+            if not self.closed:
+                self.finished.emit("check", value, generation)
+
+        threading.Thread(target=run, name="HyMT2-check", daemon=True).start()
 
     def _finished(self, operation, value, generation=None):
         if self.closed:
             return
-        self.busy = ""
+        if operation == "check":
+            self.checking = False
+            if self.busy or generation != self.operation_generation:
+                return
+            if not isinstance(value, Exception):
+                value = self.service.check(ready=value)
+        else:
+            self.busy = ""
         if generation is not None and generation != self.config_generation and operation in ("find", "start"):
             self.ui.label_hymt2_status.setText("操作已结束；配置已切换，未覆盖当前路径或备用设置。可手动填写本机备用。")
             self.refresh_buttons()
