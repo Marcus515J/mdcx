@@ -24,6 +24,7 @@ from ..network_fingerprint import build_amazon_headers
 from ..signals import signal
 from ..utils import executor
 from ..utils.file import check_pic_async
+from ..version import normalize_version
 
 
 class _AdaptiveRequestThrottle:
@@ -756,7 +757,7 @@ def ping_host(host_address: str) -> str:
     )
 
 
-def check_version() -> int | None:
+def check_version() -> str | None:
     if manager.config.update_check:
         url = GITHUB_RELEASES_API_LATEST
         headers = {
@@ -794,10 +795,12 @@ def check_version() -> int | None:
                 continue
 
             try:
-                latest_version = int(str(response.json()["tag_name"]).strip())
-                return latest_version
+                release = response.json()
+                if release.get("draft") or release.get("prerelease"):
+                    return None
+                return normalize_version(release["tag_name"])
             except Exception:
-                signal.add_log(f"❌ 获取最新版本失败！{response.text}")
+                signal.add_log("❌ 获取最新版本失败！发布版本号应为 v主版本.次版本.修订号")
                 return None
 
         if last_error:

@@ -5,7 +5,6 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from ..consts import LOCAL_VERSION
 from ..manual import ManualConfig
 from .models import Config, Website
 
@@ -305,8 +304,8 @@ class ConfigV1:
 
     def _update(self):
         """处理版本变更"""
-        if self.version == LOCAL_VERSION:
-            return
+        # Legacy INI dates are not application release versions. These
+        # conversions are idempotent and must still run after switching to v1.x.
         # 1. 处理移除的配置项, 其将储存在 unknown_fields 中
         unknown_fields = self.unknown_fields
         if "pic_name" in unknown_fields:  # 重命名为 pic_simple_name

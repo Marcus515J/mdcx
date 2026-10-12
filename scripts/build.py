@@ -1,7 +1,6 @@
 import argparse
 import logging
 import platform
-import re
 import shutil
 import subprocess
 import sys
@@ -11,6 +10,8 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.logging import RichHandler
+
+from mdcx.version import normalize_version, parse_version, read_source_version
 
 console = Console(color_system="truecolor", width=200, no_color=False)
 handler = RichHandler(level=logging.DEBUG, console=console)
@@ -45,11 +46,7 @@ def get_version_from_config() -> str:
     if not p.exists():
         raise BuildError(f"版本配置文件不存在: {p}")
     try:
-        content = p.read_text(encoding="utf-8")
-        match = re.search(r"LOCAL_VERSION\s*=\s*(\d+)", content)
-        if match:
-            return match.group(1)
-        raise BuildError("无法从代码中获取版本号")
+        return read_source_version(p)
     except Exception as e:
         raise BuildError("获取版本号失败") from e
 
@@ -70,8 +67,10 @@ class BuildManager:
         """运行构建流程"""
         try:
             start_time = time.time()
-            if not self.app_version:
-                self.app_version = get_version_from_config()
+            source_version = get_version_from_config()
+            self.app_version = normalize_version(self.app_version or source_version)
+            if self.app_version != source_version:
+                raise BuildError("构建版本与软件内版本不一致，请先统一版本号")
 
             self._check_environment()
             self._cleanup()
@@ -132,11 +131,17 @@ class BuildManager:
     def _generate_spec(self):
         """生成.spec文件"""
         logger.info("生成 .spec 文件...")
+        version_args = []
+        if self.is_windows:
+            version_file = Path("build-version.txt")
+            version_file.write_text(self._windows_version_info(), encoding="utf-8")
+            version_args = ["--version-file", str(version_file)]
         cmd = [
             "pyi-makespec",
             "--name",
             self.app_name,
             "--noupx",
+            *version_args,
             *(["--osx-bundle-identifier", "com.mdcuniverse.mdcx"] * self.is_mac),
             *(["--onefile"] if not self.is_mac else []),
             "-w",
@@ -156,6 +161,22 @@ class BuildManager:
             *[item for module in EXCLUDED_MODULES for item in ("--exclude-module", module)],
         ]
         self._run_command(cmd, "✅ 生成 .spec 文件", "spec 文件生成失败")
+
+    def _windows_version_info(self) -> str:
+        version = self.app_version.removeprefix("v")
+        components = (*parse_version(self.app_version), 0)
+        return f"""VSVersionInfo(
+  ffi=FixedFileInfo(filevers={components!r}, prodvers={components!r},
+    mask=0x3f, flags=0, OS=0x40004, fileType=0x1, subtype=0, date=(0, 0)),
+  kids=[StringFileInfo([StringTable('040904B0', [
+    StringStruct('CompanyName', 'Marcus515J'),
+    StringStruct('FileDescription', {f"{self.app_name} {self.app_version}"!r}),
+    StringStruct('FileVersion', {version!r}),
+    StringStruct('ProductName', {self.app_name!r}),
+    StringStruct('ProductVersion', {version!r}),
+    StringStruct('OriginalFilename', {f"{self.app_name}.exe"!r})
+  ])]), VarFileInfo([VarStruct('Translation', [1033, 1200])])]
+)"""
 
     def _modify_spec(self):
         """修改.spec文件添加版本信息"""
@@ -178,8 +199,9 @@ class BuildManager:
                     # 在下一行添加info_plist
                     indent = len(line) - len(line.lstrip())
                     info_plist = f"{' ' * indent}info_plist={{\n"
-                    info_plist += f"{' ' * (indent + 4)}'CFBundleShortVersionString': '{self.app_version}',\n"
-                    info_plist += f"{' ' * (indent + 4)}'CFBundleVersion': '{self.app_version}',\n"
+                    version = self.app_version.removeprefix("v")
+                    info_plist += f"{' ' * (indent + 4)}'CFBundleShortVersionString': '{version}',\n"
+                    info_plist += f"{' ' * (indent + 4)}'CFBundleVersion': '{version}',\n"
                     info_plist += f"{' ' * indent}}},"
                     new_lines.append(info_plist)
                     logger.debug(f"在第 {i + 1} 行添加 info_plist")
@@ -284,6 +306,7 @@ class BuildManager:
         for spec_file in spec_files:
             spec_file.unlink()
             logger.debug(spec_file)
+        Path("build-version.txt").unlink(missing_ok=True)
 
     def _run_command(self, args: list[str], success_msg: str | None = None, error_msg: str | None = None):
         """
