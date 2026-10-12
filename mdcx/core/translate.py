@@ -9,10 +9,11 @@ from ..base.translate import (
     translate_with_engine,
 )
 from ..base.web import get_actorname
-from ..config.enums import FieldRule, FixedScrapingType, Language, TagInclude
+from ..config.enums import FieldRule, FixedScrapingType, Language, TagInclude, Translator
 from ..config.manager import manager
 from ..config.resources import resources
 from ..gen.field_enums import CrawlerResultFields
+from ..llm import is_loopback_url
 from ..models.log_buffer import LogBuffer
 from ..models.types import CrawlersResult
 from ..number import get_number_letters
@@ -285,6 +286,8 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
         start_time = time.time()
         translate_by_list = manager.config.translate_config.translate_by.copy()
         random.shuffle(translate_by_list)
+        if is_loopback_url(str(getattr(manager.config.translate_config, "llm_url", ""))):
+            translate_by_list.sort(key=lambda engine: engine != Translator.LLM)
         for each in translate_by_list:
             if skip_reason := get_translator_skip_reason(each):
                 LogBuffer.log().write(f"\n 🟡 Translation skipped!({each.capitalize()}) {skip_reason}")
@@ -307,8 +310,28 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
             if result.translated_outline:
                 json_data.outline = result.outline
                 outline_translation_applied = True
-            LogBuffer.log().write(f"\n 🍀 Translation done!({each.capitalize()})({get_used_time(start_time)}s)")
-            json_data.outline_from = each
+                json_data.outline_from = each
+            translated_fields = [
+                name
+                for name, applied in (("标题", result.translated_title), ("简介", result.translated_outline))
+                if applied
+            ]
+            preserved_fields = [
+                name
+                for name, source, applied in (
+                    ("标题", trans_title, result.translated_title),
+                    ("简介", trans_outline, result.translated_outline),
+                )
+                if source and not applied
+            ]
+            if translated_fields:
+                status = "部分翻译完成" if preserved_fields else "翻译完成"
+                details = "已翻译：" + "、".join(translated_fields)
+            else:
+                status, details = "未获得译文", ""
+            if preserved_fields:
+                details += ("；" if details else "") + "保留原文：" + "、".join(preserved_fields)
+            LogBuffer.log().write(f"\n 📝 {status}({each.capitalize()})({get_used_time(start_time)}s) | {details}")
             break
         else:
             LogBuffer.log().write(

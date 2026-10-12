@@ -69,8 +69,8 @@ class TranslateConfig(BaseModel):
     baidu_key: str = Field(default="", title="百度密钥")
     deepl_key: str = Field(default="", title="DeepL API Key")
     deeplx_url: str = Field(default="", title="DeepLX URL")
-    llm_url: HttpUrl = Field(default=HttpUrl("https://api.llm.com/v1"), title="LLM API Host")
-    llm_model: str = Field(default="gpt-3.5-turbo", title="模型 ID")
+    llm_url: HttpUrl = Field(default=HttpUrl("https://api.deepseek.com/v1"), title="LLM API Host")
+    llm_model: str = Field(default="deepseek-chat", title="模型 ID")
     llm_key: str = Field(default="", title="LLM API Key")
     llm_prompt_title: str = Field(
         default="Please translate the following text to {lang}. Output only the translation without any explanation.\n{content}",
@@ -82,8 +82,38 @@ class TranslateConfig(BaseModel):
     )
     llm_read_timeout: int = Field(default=60, title="LLM 读取超时 (秒)", description="LLM 生成耗时较长, 建议设置较大值")
     llm_max_req_sec: float = Field(default=1, title="LLM 每秒最大请求数")
-    llm_max_try: int = Field(default=5, title="LLM 最大尝试次数")
-    llm_temperature: float = Field(default=0.2, title="LLM 温度")
+    llm_max_try: int = Field(default=1, title="LLM 最大尝试次数")
+    llm_temperature: float = Field(default=0.9, title="LLM 温度")
+    llm_refusal_prefixes: list[str] = Field(
+        default_factory=lambda: [
+            "抱歉",
+            "对不起",
+            "很抱歉",
+            "我不能",
+            "我无法",
+            "无法协助",
+            "不能协助",
+            "I'm sorry",
+            "I am sorry",
+            "I can't",
+            "I cannot",
+            "Sorry",
+        ],
+        title="LLM 拒绝前缀",
+    )
+    llm_refusal_retries: int = Field(default=1, ge=0, title="LLM 拒绝后同模型重试次数")
+    llm_fallback_url: HttpUrl | None = Field(default=None, title="备用 LLM API 地址")
+    llm_fallback_key: str = Field(default="", title="备用 LLM API Key")
+    llm_fallback_model: str = Field(default="", title="备用 LLM 模型 ID")
+    llm_fallback_read_timeout: int = Field(default=60, gt=0, title="备用 LLM 超时（秒）")
+    local_model_search_root: str = Field(default="", title="本机模型查找盘符或目录")
+    local_model_server_path: str = Field(default="", title="本机 llama-server 程序路径")
+    local_model_path: str = Field(default="", title="本机 Hy-MT2 模型路径")
+
+    @field_validator("llm_fallback_url", mode="before")
+    @classmethod
+    def empty_fallback_url(cls, value):
+        return None if isinstance(value, str) and not value.strip() else value
 
     def model_post_init(self, context) -> None:
         if self.llm_max_req_sec <= 0:
@@ -221,6 +251,12 @@ class Config(BaseModel):
         title="要从文件名中删除的字符串",
     )
     file_size: float = Field(default=100.0, title="要处理的最小文件大小（MB）")
+    garbage_enabled: bool = Field(default=False, title="刮削时自动文件清理")
+    garbage_domain_rule: bool = Field(default=True, title="垃圾文件域名样式规则")
+    garbage_permanent_delete: bool = Field(default=False, title="永久删除垃圾文件")
+    garbage_directory: str = Field(default="", title="待删目录（空为盘符根目录下 _待删）")
+    garbage_dry_run: bool = Field(default=False, title="垃圾处理演练模式")
+
     no_escape: list[NoEscape] = Field(
         default_factory=lambda: [NoEscape.RECORD_SUCCESS_FILE],
         title="不转义的字符串",
@@ -243,6 +279,10 @@ class Config(BaseModel):
             "美女荷官",
             "妹妹直播",
             "精彩直播",
+            "台湾uu",
+            "美少女直播",
+            "信誉保证",
+            "最新情報",
         ],
         title="清理规则: 文件名包含",
     )
@@ -267,6 +307,15 @@ class Config(BaseModel):
         title="启用的清理规则",
     )
     # endregion
+
+    @property
+    def garbage_keywords(self) -> list[str]:
+        """Compatibility alias; filename keywords now have one editable source."""
+        return self.clean_contains
+
+    @garbage_keywords.setter
+    def garbage_keywords(self, value: list[str]) -> None:
+        self.clean_contains = value
 
     # region: Scraping Settings
     thread_number: int = Field(default=50, title="并发数")

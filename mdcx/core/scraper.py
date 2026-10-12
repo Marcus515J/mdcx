@@ -9,6 +9,9 @@ from PyQt6.QtWidgets import QMessageBox
 
 from ..base.file import (
     _clean_empty_fodlers,
+    _is_garbage_directory,
+    _process_garbage_file,
+    _quarantine_garbage_folders,
     check_file,
     copy_trailer_to_theme_videos,
     get_movie_list,
@@ -168,6 +171,15 @@ class Scraper:
         Flags.scrape_start_time = time.time()  # 开始刮削时间
         Flags.file_mode = file_mode  # 刮削模式（工具单文件或主界面/日志点开始正常刮削）
 
+        cfg = manager.config
+        if not cfg.garbage_enabled:
+            signal.show_log_text(" 🗑 垃圾处理：未启用自动清理，可在设置 → 刮削目录 → 文件清理设置中开启。")
+        else:
+            mode = "演练（只记录，不移动或删除）" if cfg.garbage_dry_run else "真实处理"
+            action = "永久删除单文件" if cfg.garbage_permanent_delete else "移到待删目录"
+            location = cfg.garbage_directory.strip() or "源文件盘符根目录下 _待删"
+            signal.show_log_text(f" 🗑 垃圾处理：{mode} | {action} | N={cfg.file_size:g} MB | 待删位置：{location}")
+
         signal.show_scrape_info("🔎 正在刮削中...")
 
         signal.set_main_info()  # 清空主界面显示信息
@@ -256,6 +268,8 @@ class Scraper:
                 path_settings if media_path == movie_path else get_movie_path_setting(movie_path_override=media_path)
             )
             clean_path = current_paths.softlink_path if manager.config.scrape_softlink_path else media_path
+            if manager.config.garbage_enabled:
+                await asyncio.to_thread(_quarantine_garbage_folders, clean_path, current_paths.ignore_dirs)
             await _clean_empty_fodlers(clean_path, file_mode)
         end_time = time.time()
         used_time = str(round((end_time - Flags.start_time), 2))
@@ -311,8 +325,24 @@ class Scraper:
             signal.exec_exit_app.emit()
 
     async def process_one_file(self, task: tuple[Path, int, int]) -> None:
-        # 获取顺序
+        # Explicit/resumed tasks also bypass site search for quarantined or matched files.
         file_path, count, count_all = task
+        if _is_garbage_directory(file_path.parent) or (
+            manager.config.garbage_enabled
+            and await asyncio.to_thread(
+                _process_garbage_file,
+                file_path,
+                defer_folder=file_path.parent not in get_movie_path_setting().movie_paths,
+            )
+        ):
+            if file_path in Flags.remain_list:
+                Flags.remain_list.remove(file_path)
+                Flags.can_save_remain = True
+            Flags.counting_order += 1
+            Flags.scrape_starting += 1
+            Flags.scrape_started += 1
+            Flags.scrape_done += 1
+            return
         Flags.counting_order += 1
         count = Flags.counting_order
 

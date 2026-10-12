@@ -147,7 +147,7 @@ def long_name(short_name: str) -> str:
     return long_name.lower().replace("-", "").replace(".", "") if long_name else short_name.lower()
 
 
-def get_file_number(filepath: str, escape_string_list: list[str]) -> str:
+def get_file_number(filepath: str, escape_string_list: list[str], *, recognized_only: bool = False) -> str:
     real_name = os.path.splitext(os.path.split(filepath)[1])[0].strip() + "."
 
     # 去除多余字符
@@ -285,6 +285,8 @@ def get_file_number(filepath: str, escape_string_list: list[str]) -> str:
         file_number = temp[0] + "-" + temp[1]
 
     else:
+        if recognized_only:
+            return ""
         temp_name = re.sub(r"[【(（\[].+?[]）)】]", "", file_name).strip("@. ")  # 去除[]
         temp_name = unicodedata.normalize("NFC", temp_name)  # Mac 把会拆成两个字符，即 NFD，而网页请求使用的是 NFC
         with contextlib.suppress(Exception):

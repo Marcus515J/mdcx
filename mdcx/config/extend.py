@@ -5,7 +5,6 @@ from ..manual import ManualConfig
 from ..utils.path import is_descendant
 from .enums import Website
 from .manager import manager
-from .models import CleanAction
 
 
 @dataclass
@@ -111,44 +110,6 @@ def get_movie_path_setting(
         extrafanart_folder=extrafanart_folder,
         softlink_path=softlink_path,
     )
-
-
-def need_clean(file_path: Path, file_name: str, file_ext: str) -> bool:
-    # 判断文件是否需清理
-    if not manager.computed.can_clean:
-        return False
-
-    # 不清理的扩展名
-    if CleanAction.CLEAN_IGNORE_EXT in manager.config.clean_enable and file_ext in manager.config.clean_ignore_ext:
-        return False
-
-    # 不清理的文件名包含
-    if CleanAction.CLEAN_IGNORE_CONTAINS in manager.config.clean_enable:
-        for each in manager.config.clean_ignore_contains:
-            if each in file_name:
-                return False
-
-    # 清理的扩展名
-    if CleanAction.CLEAN_EXT in manager.config.clean_enable and file_ext in manager.config.clean_ext:
-        return True
-
-    # 清理的文件名等于
-    if CleanAction.CLEAN_NAME in manager.config.clean_enable and file_name in manager.config.clean_name:
-        return True
-
-    # 清理的文件名包含
-    if CleanAction.CLEAN_CONTAINS in manager.config.clean_enable:
-        for each in manager.config.clean_contains:
-            if each in file_name:
-                return True
-
-    # 清理的文件大小<=(KB)
-    if CleanAction.CLEAN_SIZE in manager.config.clean_enable:
-        try:  # 路径太长时，此处会报错 FileNotFoundError: [WinError 3] 系统找不到指定的路径。
-            return file_path.stat().st_size <= manager.config.clean_size * 1024
-        except Exception:
-            pass
-    return False
 
 
 def deal_url(url: str) -> tuple[str | None, str]:

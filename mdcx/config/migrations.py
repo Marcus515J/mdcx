@@ -1,7 +1,7 @@
 import re
 from typing import Any
 
-from .enums import DownloadableFile, HDPicSource, Website
+from .enums import CleanAction, DownloadableFile, HDPicSource, Website
 
 CURRENT_CONFIG_VERSION = 2
 
@@ -137,6 +137,28 @@ def migrate_config_data(data: dict[str, Any]) -> list[str]:
     所有可恢复的旧配置差异都应在这里归一化，再交给 Pydantic 做强校验。
     """
     warnings: list[str] = []
+
+    for name in ("clean_ext", "clean_name", "clean_contains", "clean_ignore_ext", "clean_ignore_contains"):
+        if isinstance(data.get(name), str):
+            data[name] = _str_to_list(data[name], "|")
+
+    # Merge the previous test build's keyword list into the existing editable rule.
+    # Loading only changes the in-memory model; the original JSON is not overwritten.
+    old_keywords = data.pop("garbage_keywords", None)
+    if old_keywords is not None:
+        contains = _str_to_list(data.get("clean_contains", []), "|")
+        keywords = _str_to_list(old_keywords, "|")
+        data["clean_contains"] = list(dict.fromkeys(contains + keywords))
+        warnings.append("[清理] 已将垃圾黑名单合并到文件名包含规则，完整文件名和排除规则保持原值。")
+    enabled = data.get("clean_enable")
+    if isinstance(enabled, str):
+        enabled = _str_to_list(enabled)
+    if isinstance(enabled, list):
+        data.setdefault("garbage_enabled", CleanAction.AUTO_CLEAN in enabled)
+        enabled = [value for value in enabled if value != CleanAction.AUTO_CLEAN]
+        if data.get("garbage_enabled"):
+            enabled.append(CleanAction.AUTO_CLEAN)
+        data["clean_enable"] = enabled
 
     data.pop("google_used", None)
     data.pop("google_exclude", None)

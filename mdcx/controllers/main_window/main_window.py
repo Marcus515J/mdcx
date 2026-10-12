@@ -800,6 +800,8 @@ class MyMAinWindow(QMainWindow):
                 signal_qt.show_traceback_log(traceback.format_exc())
         if hasattr(self, "preview_image_loader"):
             self.preview_image_loader.shutdown()
+        if hasattr(self, "local_model_controller"):
+            self.local_model_controller.shutdown()
         if hasattr(self, "tray_icon"):
             self.tray_icon.hide()
         signal_qt.show_traceback_log("\n\n\n\n************ 程序正常退出！************\n")
@@ -2738,8 +2740,9 @@ class MyMAinWindow(QMainWindow):
 
     # 设置-刮削目录 点击检查待刮削目录并清理文件
     def pushButton_check_and_clean_files_clicked(self):
-        if not manager.computed.can_clean:
-            self.pushButton_save_config_clicked()
+        self.pushButton_save_config_clicked()
+        signal_qt.stop = False
+        Flags.stop_requested = False
         self.pushButton_show_log_clicked()
         try:
             executor.submit(check_and_clean_files())
@@ -2927,12 +2930,8 @@ class MyMAinWindow(QMainWindow):
 
     # 设置-刮削目录-同意清理(我已知晓/我已同意)
     def checkBox_i_agree_clean_clicked(self):
-        if self.Ui.checkBox_i_understand_clean.isChecked() and self.Ui.checkBox_i_agree_clean.isChecked():
-            self.Ui.pushButton_check_and_clean_files.setEnabled(True)
-            self.Ui.checkBox_auto_clean.setEnabled(True)
-        else:
-            self.Ui.pushButton_check_and_clean_files.setEnabled(False)
-            self.Ui.checkBox_auto_clean.setEnabled(False)
+        self.Ui.pushButton_check_and_clean_files.setEnabled(True)
+        self.Ui.checkBox_auto_clean.setEnabled(True)
 
     # 读取设置页的设置, 保存config.ini，然后重新加载
     def _check_mac_config_folder(self):
@@ -3247,6 +3246,7 @@ class MyMAinWindow(QMainWindow):
         return
 
     def change_buttons_status(self):
+        self.Ui.groupBox_61.setEnabled(False)
         Flags.stop_other = True
         self.Ui.pushButton_start_cap.setText("■ 停止")
         self.Ui.pushButton_start_cap2.setText("■ 停止")
@@ -3279,6 +3279,7 @@ class MyMAinWindow(QMainWindow):
         )
 
     def reset_buttons_status(self):
+        self.Ui.groupBox_61.setEnabled(True)
         self.Ui.pushButton_start_cap.setEnabled(True)
         self.Ui.pushButton_start_cap2.setEnabled(True)
         self.pushButton_start_cap.emit("开始")
