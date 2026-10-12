@@ -22,6 +22,11 @@ def normalize_controls(container):
         if not isinstance(control, (QLineEdit, QAbstractSpinBox, QComboBox, QPushButton)):
             continue
         control.setStyleSheet("")
+        if isinstance(control, QLineEdit) and isinstance(control.parentWidget(), (QAbstractSpinBox, QComboBox)):
+            # The outer control owns its editor geometry. A full row height here
+            # exceeds the padded content area and pushes text below its center.
+            control.setMinimumHeight(0)
+            continue
         control.setMinimumHeight(30)
         if isinstance(control, QPushButton):
             control.setProperty("settingsAction", True)

@@ -120,6 +120,9 @@ def test_controls_fit_translation_group_and_following_groups(window, width, heig
     ui.groupBox_llm.show()
     app.processEvents()
     for control in (
+        ui.doubleSpinBox_llm_max_req_sec,
+        ui.spinBox_llm_max_try,
+        ui.doubleSpinBox_llm_temperature,
         ui.spinBox_llm_read_timeout,
         ui.spinBox_llm_refusal_retries,
         ui.lineEdit_llm_fallback_url,
@@ -142,6 +145,19 @@ def test_controls_fit_translation_group_and_following_groups(window, width, heig
         assert control.palette().color(QPalette.ColorRole.Text).name() == expected
         assert control.styleSheet() == ""
     assert ui.spinBox_llm_read_timeout.lineEdit().palette().color(QPalette.ColorRole.Text).name() == expected
+    for control in (
+        ui.doubleSpinBox_llm_max_req_sec,
+        ui.spinBox_llm_max_try,
+        ui.doubleSpinBox_llm_temperature,
+        ui.spinBox_llm_read_timeout,
+        ui.spinBox_llm_refusal_retries,
+        ui.spinBox_llm_fallback_read_timeout,
+        ui.comboBox_hymt2_server,
+        ui.comboBox_hymt2_model,
+    ):
+        editor = control.lineEdit()
+        assert control.rect().contains(editor.geometry())
+        assert abs(editor.geometry().center().y() - control.rect().center().y()) <= 1
     assert ui.pushButton_save_config.isVisible()
     assert window.rect().contains(ui.pushButton_save_config.mapTo(window, ui.pushButton_save_config.rect().center()))
     ui.scrollArea_11.ensureWidgetVisible(ui.pushButton_hymt2_start)
