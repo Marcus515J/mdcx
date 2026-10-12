@@ -24,6 +24,8 @@
 
 ## 构建
 
+正式功能说明：[文件清理](docs/garbage-cleanup.md)、[云端翻译与本机备用](docs/llm-refusal.md)、[本机模型管理](docs/local-models.md)。
+
 > 一般情况无需自行构建，请到[本仓库 Releases](https://github.com/Marcus515J/mdcx/releases) 下载发布版本。
 > 当前提供 Apple 芯片 Mac（macOS aarch64）和 Windows x86_64 安装包；上游仓库的版本与本仓库独立发布。
 

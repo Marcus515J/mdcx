@@ -146,12 +146,61 @@ HTTPServer(("127.0.0.1", 8080), Handler).serve_forever()
 """
 
 
+POWERSHELL = Path(os.environ.get("SystemRoot", "C:/Windows")) / ("System32/WindowsPowerShell/v1.0/powershell.exe")
+
+FAKE_SERVER = r"""
+using System;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using System.Diagnostics;
+public class FakeServer {
+    public static int Main(string[] args) {
+        string record = Environment.GetEnvironmentVariable("MDCX_LAUNCHER_TEST_RECORD");
+        if (!String.IsNullOrEmpty(record)) {
+            File.WriteAllLines(record, args, new UTF8Encoding(false));
+            File.WriteAllText(record + ".pid", Process.GetCurrentProcess().Id.ToString());
+        }
+        string mode = Environment.GetEnvironmentVariable("MDCX_LAUNCHER_TEST_MODE");
+        if (mode == "fail") { Console.Error.WriteLine("MOCK_DLL_FAILURE"); return 42; }
+        if (mode == "hang") { Thread.Sleep(120000); return 0; }
+        int port = Int32.Parse(args[Array.IndexOf(args, "--port") + 1]);
+        string alias = args[Array.IndexOf(args, "--alias") + 1];
+        var listener = new TcpListener(IPAddress.Loopback, port);
+        listener.Start();
+        while (true) {
+            using (var client = listener.AcceptTcpClient()) {
+                client.ReceiveTimeout = 2500;
+                try {
+                    var stream = client.GetStream();
+                    var reader = new StreamReader(stream, Encoding.ASCII);
+                    string first = reader.ReadLine();
+                    if (first == null) continue;
+                    while (!String.IsNullOrEmpty(reader.ReadLine())) {}
+                    string body = "{\"data\":[{\"id\":\"" + alias + "\"}]}";
+                    bool health = first.StartsWith("GET /health ");
+                    if (health) body = "{\"status\":\"" + (mode == "loading" ? "loading" : "ok") + "\"}";
+                    byte[] bytes = Encoding.UTF8.GetBytes(body);
+                    string status = (health && mode == "loading") ? "503 Service Unavailable" : "200 OK";
+                    string header = "HTTP/1.1 " + status + "\r\nContent-Type: application/json\r\nContent-Length: "
+                        + bytes.Length + "\r\nConnection: close\r\n\r\n";
+                    byte[] head = Encoding.ASCII.GetBytes(header);
+                    stream.Write(head, 0, head.Length);
+                    stream.Write(bytes, 0, bytes.Length);
+                } catch (IOException) {}
+            }
+        }
+    }
+}
+"""
+
+
 @pytest.fixture(scope="module")
 def windows_binary(tmp_path_factory):
     if os.name != "nt":
         return None
-    from scripts.test_local_hymt2_launcher import FAKE_SERVER, POWERSHELL
-
     root = tmp_path_factory.mktemp("model-compiler")
     source, target = root / "fixture.cs", root / "llama-server.exe"
     source.write_text(FAKE_SERVER, encoding="utf-8")
