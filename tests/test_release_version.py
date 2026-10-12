@@ -5,7 +5,7 @@ import tomllib
 import pytest
 
 from mdcx.consts import LOCAL_VERSION
-from scripts import build, bump
+from scripts import build, bump, changelog
 from scripts import check_release_version as release
 
 
@@ -44,6 +44,12 @@ def test_release_rejects_any_source_version_drift(source, file):
 @pytest.mark.parametrize("part,expected", [("major", "v2.0.0"), ("minor", "v1.2.0"), ("patch", "v1.1.1")])
 def test_bump_resets_lower_components(part, expected):
     assert bump.bumped_version("v1.1.0", part) == expected
+
+
+def test_changelog_uses_the_application_release_version(tmp_path):
+    output = tmp_path / "changelog.md"
+    changelog.generate_changelog("synthetic commit", output)
+    assert output.read_text(encoding="utf-8").startswith(f"# MDCx {LOCAL_VERSION}\n")
 
 
 def test_bump_synchronizes_sources_without_changing_dependencies(source, monkeypatch):
