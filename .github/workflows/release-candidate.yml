@@ -20,8 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.draft.outputs.tag }}
+      matrix: ${{ steps.draft.outputs.matrix }}
+      build_required: ${{ steps.draft.outputs.build_required }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Prepare unpublished release for the exact candidate commit
         id: draft
         env:
@@ -32,6 +36,7 @@ jobs:
           import os
           from pathlib import Path
           import re
+          import subprocess
           import urllib.request
 
           tag = re.search(r"LOCAL_VERSION\s*=\s*(\d+)", Path("mdcx/consts.py").read_text()).group(1)
@@ -50,6 +55,20 @@ jobs:
           existing = next((r for r in api("releases?per_page=100") if r["tag_name"] == tag), None)
           if existing:
               assert existing["draft"], "Never modify a published release"
+          # Pipeline/docs-only changes can reuse already verified draft assets.
+          unchanged = existing and subprocess.run(
+              ["git", "diff", "--quiet", existing["target_commitish"], sha, "--",
+               "main.py", "mdcx", "resources", "libs", "scripts", "pyproject.toml", "uv.lock"],
+              check=False).returncode == 0
+          matrix = []
+          for runner, platform, extension in (("windows-latest", "windows-x86_64", "exe"),
+                                               ("macos-latest", "macos-aarch64", "dmg")):
+              name = "MDCx-" + tag + "-" + platform + "." + extension
+              asset = next((a for a in existing["assets"] if a["name"] == name), None) if existing else None
+              if unchanged and asset and asset["state"] == "uploaded" and asset.get("digest"):
+                  print("Reusing verified asset with identical application source:", name, asset["digest"])
+              else:
+                  matrix.append({"os": runner, "platform": platform})
           payload = {"tag_name": tag, "target_commitish": sha,
                      "name": "MDCx " + tag, "draft": True, "prerelease": False,
                      "body": Path("changelog.md").read_text(encoding="utf-8")}
@@ -57,19 +76,17 @@ jobs:
           assert release["draft"] and release["target_commitish"] == sha
           with open(os.environ["GITHUB_OUTPUT"], "a") as stream:
               stream.write("tag=" + tag + "\n")
+              stream.write("matrix=" + json.dumps({"include": matrix}) + "\n")
+              stream.write("build_required=" + ("true" if matrix else "false") + "\n")
           print("Prepared draft", tag, "at", sha, "without publishing")
           PY
 
   build:
     needs: draft
+    if: needs.draft.outputs.build_required == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            platform: windows-x86_64
-          - os: macos-latest
-            platform: macos-aarch64
+      matrix: ${{ fromJson(needs.draft.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
@@ -113,8 +130,12 @@ jobs:
           constants = pyz.extract("mdcx.consts").co_consts
           assert int(os.environ["RELEASE_TAG"]) in constants
           assert "Marcus515J/mdcx" in constants
-          entry = next(name for name in archive.toc if name.replace("\\", "/").endswith("resources/config/default_config.json"))
-          assert json.loads(archive.extract(entry)) == json.loads(Path("resources/config/default_config.json").read_text(encoding="utf-8"))
+          if os.name == "nt":
+              entry = next(name for name in archive.toc if name.replace("\\", "/").endswith("resources/config/default_config.json"))
+              bundled = json.loads(archive.extract(entry))
+          else:
+              bundled = json.loads(Path("dist/MDCx.app/Contents/Resources/resources/config/default_config.json").read_text(encoding="utf-8"))
+          assert bundled == json.loads(Path("resources/config/default_config.json").read_text(encoding="utf-8"))
           print("Verified bundled version, repository, model manager and default configuration")
           PY
       - name: Upload candidate assets to draft only
@@ -132,4 +153,4 @@ jobs:
           cp "dist/MDCx.${candidate_extension}" "dist/${candidate_asset}"
           test "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = true
           gh release upload "$RELEASE_TAG" "dist/${candidate_asset}" --repo "$GITHUB_REPOSITORY" --clobber
-          shasum -a 256 "dist/${candidate_asset}"
+          uv run --locked python -c 'import hashlib,sys; from pathlib import Path; p=Path(sys.argv[1]); print(p.name, hashlib.file_digest(p.open("rb"), "sha256").hexdigest())' "dist/${candidate_asset}"
