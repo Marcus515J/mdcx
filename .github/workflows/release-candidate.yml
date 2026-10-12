@@ -84,8 +84,12 @@ jobs:
           activate-environment: true
       - name: Install locked dependencies
         run: uv sync --locked --dev
-      - name: Validate candidate settings, process management and configuration
+      - name: Validate Windows settings, process management and configuration
+        if: runner.os == 'Windows'
         run: uv run --locked pytest -q tests/test_llm_settings_ui.py tests/test_garbage_settings_ui.py tests/test_local_model.py tests/test_config_conversion.py tests/test_config_network.py
+      - name: Validate macOS settings, configuration and translation interfaces
+        if: runner.os == 'macOS'
+        run: uv run --locked pytest -q tests/test_llm_settings_ui.py tests/test_garbage_settings_ui.py tests/test_config_conversion.py tests/test_config_network.py tests/test_local_llm.py
       - name: Build Windows candidate
         if: runner.os == 'Windows'
         run: uv run --locked scripts/build.py --debug
@@ -110,7 +114,7 @@ jobs:
           assert int(os.environ["RELEASE_TAG"]) in constants
           assert "Marcus515J/mdcx" in constants
           entry = next(name for name in archive.toc if name.replace("\\", "/").endswith("resources/config/default_config.json"))
-          assert json.loads(archive.extract(entry)) == json.loads(Path("resources/config/default_config.json").read_text())
+          assert json.loads(archive.extract(entry)) == json.loads(Path("resources/config/default_config.json").read_text(encoding="utf-8"))
           print("Verified bundled version, repository, model manager and default configuration")
           PY
       - name: Upload candidate assets to draft only
