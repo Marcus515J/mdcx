@@ -316,6 +316,48 @@ def test_late_start_result_after_config_reload_does_not_overwrite_backup(window)
     assert "配置已切换" in ui.label_hymt2_status.text()
 
 
+def test_cached_validation_keeps_other_candidates_and_selected_index_preset(window):
+    from mdcx.local_model import Installation
+
+    window, _ = window
+    controller, ui = window.local_model_controller, window.Ui
+    controller.timer.stop()
+    hy = "H:/0AI/models/HY-MT2-7B-Q8_0.gguf"
+    index = "H:/0AI/models/Index-Translate-9B.Q6_K.gguf"
+    ui.comboBox_hymt2_model.clear()
+    ui.comboBox_hymt2_model.addItems([hy, index])
+    ui.comboBox_hymt2_model.setCurrentText(index)
+    controller._finished("find", Installation(["H:/0AI/llama.cpp/llama-server.exe"], [index], cached=True))
+    assert ui.comboBox_hymt2_model.count() == 2
+    ui.pushButton_local_hymt2.click()
+    assert ui.lineEdit_llm_fallback_model.text() == "Index-Translate-9B.Q6_K"
+    assert ui.lineEdit_llm_model.text() == "existing-model"
+    assert ui.lineEdit_llm_key.text() == "synthetic-key"
+
+
+def test_windows_paths_are_displayed_consistently_after_scan_and_load(window):
+    import os
+
+    from mdcx.local_model import Installation
+
+    if os.name != "nt":
+        pytest.skip("Native Windows separators are checked on Windows")
+    window, _ = window
+    controller, ui = window.local_model_controller, window.Ui
+    controller.timer.stop()
+    tc = settings.manager.config.translate_config
+    tc.local_model_search_root = "H:/0AI"
+    tc.local_model_server_path = "H:/0AI/llama.cpp/llama-server.exe"
+    tc.local_model_path = "H:/0AI/models/Index-Translate-9B.Q6_K.gguf"
+    settings.load_llm_settings(window)
+    controller._finished("find", Installation([tc.local_model_server_path], [tc.local_model_path]))
+    for field in (ui.lineEdit_hymt2_root, ui.comboBox_hymt2_server.lineEdit(), ui.comboBox_hymt2_model.lineEdit()):
+        assert "/" not in field.text() and "\\" in field.text()
+        field.setText(field.text().replace("\\", "/"))
+        field.editingFinished.emit()
+        assert "/" not in field.text()
+
+
 def test_exit_cleanup_only_after_confirmation_and_not_tray_hide(window, monkeypatch):
     from PyQt6.QtWidgets import QMessageBox
 

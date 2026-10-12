@@ -1,4 +1,4 @@
-"""Discovery and ownership of the existing Hy-MT2 llama.cpp service.
+"""Discovery and ownership of an existing local llama.cpp translation service.
 
 Blocking operations belong on a worker, never on the Qt thread. No installation,
 download, private configuration inspection or unowned process termination.
@@ -23,6 +23,18 @@ import httpx
 MODEL_ALIAS = "HY-MT2-7B-Q8_0"
 LOCAL_URL = "http://127.0.0.1:8080/v1"
 SKIP_DIRECTORIES = {"$recycle.bin", "system volume information", "windows", "_待删"}
+
+
+def model_alias(path: str) -> str:
+    return Path(path.replace("\\", "/")).stem if path else MODEL_ALIAS
+
+
+def model_family(name: str) -> str:
+    if re.search(r"hy[-_]?mt2", name, re.I):
+        return "hy-mt2"
+    if re.search(r"index[-_]?translate", name, re.I):
+        return "index-translate"
+    return name.casefold()
 
 
 def valid_file(path: str | Path, kind: str) -> bool:
@@ -124,7 +136,7 @@ def discover(
                                 pass
                         elif name == "llama-server.exe" and valid_file(path, "server"):
                             servers.add(str(path.absolute()))
-                        elif re.search(r"hy[-_]?mt2.*\.gguf$", name) and valid_file(path, "model"):
+                        elif path.suffix.lower() == ".gguf" and valid_file(path, "model"):
                             models.add(str(path.absolute()))
                     except OSError:
                         skipped += 1
@@ -135,6 +147,8 @@ def discover(
     models = list(
         dict.fromkeys(recorded_models + sorted(models, key=lambda p: (not re.search(r"7b.*q8[_-]0", p.lower()), p)))
     )
+    # Keep the established Hy-MT2 default while exposing other GGUF candidates.
+    models.sort(key=lambda p: model_family(model_alias(p)) != "hy-mt2")
     progress(f"查找完成：程序 {len(servers)} 个，模型 {len(models)} 个；可浏览补充缺失文件。")
     return Installation(servers, models)
 
@@ -144,6 +158,7 @@ class LocalModelService:
         self.process: subprocess.Popen | None = None
         self.reused = False
         self.model_id = ""
+        self.expected_model = ""
         self.log_directory: Path | None = None
         self.cancel = threading.Event()
         self._lock = threading.RLock()
@@ -165,7 +180,11 @@ class LocalModelService:
                     return ""
                 for model in models.json().get("data", []):
                     model_id = model.get("id", "")
-                    if isinstance(model_id, str) and re.search(r"hy[-_]?mt2", model_id, re.I):
+                    if (
+                        isinstance(model_id, str)
+                        and model_id
+                        and (model_family(model_id) in ("hy-mt2", "index-translate") or model_id == self.expected_model)
+                    ):
                         return model_id
         except (httpx.HTTPError, ValueError, AttributeError, TypeError):
             pass
@@ -197,16 +216,23 @@ class LocalModelService:
                 raise InterruptedError("已取消启动。")
             if self.owned:
                 return self.model_id
+            self.expected_model = model_alias(model) if valid_file(model, "model") else ""
         ready = self.ready_model()
         if self.cancel.is_set():
             raise InterruptedError("已取消启动。")
         if ready:
+            if self.expected_model and model_family(ready) != model_family(self.expected_model):
+                raise RuntimeError(
+                    f"端口 8080 已运行 {ready}；请先停止已有服务，再启动所选模型 {self.expected_model}。"
+                )
             self.reused, self.model_id = True, ready
-            progress("复用已就绪的 Hy-MT2 服务；由其他程序管理。")
+            progress(f"复用已就绪的本机服务 {ready}；由其他程序管理。")
             return ready
         try:
             with socket.create_connection(("127.0.0.1", 8080), timeout=1):
-                raise RuntimeError("端口 8080 已占用，但 Hy-MT2 尚未就绪；请等待已有服务加载，或关闭占用程序后重试。")
+                raise RuntimeError(
+                    "端口 8080 已占用，但所选本机模型尚未就绪；请等待已有服务加载，或关闭占用程序后重试。"
+                )
         except OSError:
             pass
         if not valid_file(server, "server"):
@@ -230,7 +256,7 @@ class LocalModelService:
                 "--port",
                 "8080",
                 "--alias",
-                MODEL_ALIAS,
+                self.expected_model,
             ]
             self._log("启动本机备用服务。")
             with (
@@ -295,6 +321,7 @@ class LocalModelService:
                 self.process = None
                 self._log("本软件启动的服务已停止。")
             self.model_id = ""
+            self.expected_model = ""
             self.reused = False
 
     def check(self, ready: str | None = None) -> tuple[str, str]:

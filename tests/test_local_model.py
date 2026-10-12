@@ -55,6 +55,21 @@ def test_valid_cache_never_scans_and_missing_cache_rescans(tmp_path, monkeypatch
     assert server in result.servers
 
 
+def test_scan_lists_hy_index_and_other_valid_gguf_with_hy_preferred(tmp_path):
+    server, hy = installation(tmp_path / "安装")
+    root = Path(hy).parent
+    index = root / "Index-Translate-9B.Q6_K.gguf"
+    other = root / "Other-Translator.gguf"
+    for path in (index, other):
+        path.write_bytes(b"GGUFfixture")
+    (root / "bad.gguf").write_bytes(b"invalid")
+    result = local.discover([str(tmp_path)], server, str(index), force=True)
+    assert result.models[0] == hy
+    assert set(result.models) == {hy, str(index), str(other)}
+    assert local.model_alias("H:/0AI/models/Index-Translate-9B.Q6_K.gguf") == "Index-Translate-9B.Q6_K"
+    assert local.model_alias(r"H:\0AI\models\Index-Translate-9B.Q6_K.gguf") == "Index-Translate-9B.Q6_K"
+
+
 def test_cancel_missing_root_and_link_protection(tmp_path):
     cancel = threading.Event()
     cancel.set()
@@ -83,6 +98,7 @@ def test_root_parser_preserves_browsed_literal_directory():
     "health,models,expected",
     [
         ((200, {"status": "ok"}), (200, {"data": [{"id": "HY-MT2-custom"}]}), "HY-MT2-custom"),
+        ((200, {"status": "ok"}), (200, {"data": [{"id": "Index-Translate-9B.Q6_K"}]}), "Index-Translate-9B.Q6_K"),
         ((503, {"status": "loading"}), (200, {"data": [{"id": local.MODEL_ALIAS}]}), ""),
         ((200, {"status": "ok"}), (200, {"data": [{"id": "other-model"}]}), ""),
         ((302, {}), (200, {"data": [{"id": local.MODEL_ALIAS}]}), ""),
@@ -222,6 +238,28 @@ def test_external_ready_service_is_reused_and_never_stopped(service):
     assert other.start("missing", "missing", [logs]) == local.MODEL_ALIAS
     assert other.reused and not other.owned and len(calls) == 1
     other.stop()
+    other.close()
+    assert manager.owned and manager.ready_model() == local.MODEL_ALIAS
+
+
+@pytest.mark.parametrize("name", ["Index-Translate-9B.Q6_K", "Other-Translator"])
+def test_selected_gguf_uses_its_own_alias_and_reports_ready(service, name):
+    manager, server, model, logs, calls = service
+    selected = Path(model).with_name(name + ".gguf")
+    selected.write_bytes(b"GGUFfixture")
+    assert manager.start(server, str(selected), [logs], timeout=10) == name
+    assert calls[0][-2:] == ["--alias", name]
+    assert manager.check() == ("ready", "本软件管理：" + name)
+
+
+def test_external_hy_is_not_silently_reused_for_selected_index(service):
+    manager, server, model, logs, calls = service
+    manager.start(server, model, [logs], timeout=10)
+    selected = Path(model).with_name("Index-Translate-9B.Q6_K.gguf")
+    selected.write_bytes(b"GGUFfixture")
+    other = local.LocalModelService()
+    with pytest.raises(RuntimeError, match="先停止已有服务"):
+        other.start(server, str(selected), [logs])
     other.close()
     assert manager.owned and manager.ready_model() == local.MODEL_ALIAS
 

@@ -2,7 +2,7 @@ import re
 import threading
 from pathlib import Path
 
-from PyQt6.QtCore import QObject, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
+from PyQt6.QtCore import QDir, QObject, QStandardPaths, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 )
 
 from mdcx.config.manager import manager
-from mdcx.local_model import LOCAL_URL, MODEL_ALIAS, LocalModelService, discover
+from mdcx.local_model import LOCAL_URL, LocalModelService, discover, model_alias
 from mdcx.signals import signal_qt
 
 from .settings_layout import setting_row
@@ -32,7 +32,7 @@ def setup_local_model_controls(window, layout):
     grid.setHorizontalSpacing(12)
     grid.setVerticalSpacing(8)
     grid.setColumnStretch(1, 1)
-    title = QLabel("本机 Hy-MT2 模型管理（备用）")
+    title = QLabel("本机模型管理（备用，默认 Hy-MT2）")
     grid.addWidget(title, 0, 0, 1, 2)
     ui.lineEdit_hymt2_root = QLineEdit()
     ui.lineEdit_hymt2_root.setPlaceholderText("大概在哪个盘，例如 H；也可输入 H D 或选择目录")
@@ -80,6 +80,7 @@ def setup_local_model_controls(window, layout):
     grid.addWidget(ui.label_hymt2_status, 6, 0, 1, 2)
     note = QLabel(
         "首次选择盘符后查找；多份安装可从列表选择，路径随底部“保存”记忆。\n"
+        "查找列出有效 GGUF，默认优先 Hy-MT2；切换模型前请先停止正在运行的服务。\n"
         "启动成功只填写备用接口，请保存后刮削。外部服务仅复用；本软件启动的服务会在退出时停止。"
     )
     note.setWordWrap(True)
@@ -96,6 +97,10 @@ def search_roots(text: str) -> list[str]:
         return [token[0].upper() + ":\\" for token in tokens]
     # A browsed directory may contain spaces or brackets; never split it.
     return [text]
+
+
+def display_path(path: str) -> str:
+    return QDir.toNativeSeparators(path)
 
 
 class LocalModelController(QObject):
@@ -126,6 +131,12 @@ class LocalModelController(QObject):
         self.ui.pushButton_hymt2_root.clicked.connect(self.browse_root)
         self.ui.pushButton_hymt2_server.clicked.connect(lambda: self.browse("server"))
         self.ui.pushButton_hymt2_model.clicked.connect(lambda: self.browse("model"))
+        for control in (
+            self.ui.lineEdit_hymt2_root,
+            self.ui.comboBox_hymt2_server.lineEdit(),
+            self.ui.comboBox_hymt2_model.lineEdit(),
+        ):
+            control.editingFinished.connect(lambda field=control: field.setText(display_path(field.text())))
         signal_qt.change_buttons_status.connect(self._scrape_started)
         signal_qt.reset_buttons_status.connect(self._scrape_finished)
         self.timer = QTimer(self)
@@ -261,13 +272,18 @@ class LocalModelController(QObject):
         elif operation == "find":
             for kind, candidates in (("server", value.servers), ("model", value.models)):
                 combo = getattr(self.ui, f"comboBox_hymt2_{kind}")
-                previous = combo.currentText()
+                previous = display_path(combo.currentText())
+                candidates = [display_path(path) for path in candidates]
+                if value.cached:
+                    candidates = list(
+                        dict.fromkeys([display_path(combo.itemText(i)) for i in range(combo.count())] + candidates)
+                    )
                 combo.clear()
                 combo.addItems(candidates)
                 if previous in candidates:
                     combo.setCurrentText(previous)
             self.ui.label_hymt2_status.setText(
-                "记忆路径有效，可启动备用模型。"
+                "已验证选中路径；保留已知候选，重新查找可更新完整模型列表。"
                 if value.cached
                 else f"找到程序 {len(value.servers)} 个、模型 {len(value.models)} 个；请从列表选择，缺失时可浏览补充。"
             )
@@ -287,7 +303,9 @@ class LocalModelController(QObject):
     def apply_fallback(self, model_id=None):
         # All other cloud, prompt, temperature, retry and translator settings stay untouched.
         self.ui.lineEdit_llm_fallback_url.setText(LOCAL_URL)
-        self.ui.lineEdit_llm_fallback_model.setText(model_id or self.service.model_id or MODEL_ALIAS)
+        self.ui.lineEdit_llm_fallback_model.setText(
+            model_id or self.service.model_id or model_alias(self.ui.comboBox_hymt2_model.currentText().strip())
+        )
         self.ui.lineEdit_llm_fallback_key.clear()
 
     def browse_root(self):
@@ -295,14 +313,15 @@ class LocalModelController(QObject):
             self.window, "选择大概安装模型的盘或目录", self.ui.lineEdit_hymt2_root.text()
         )
         if path:
-            self.ui.lineEdit_hymt2_root.setText(path)
+            self.ui.lineEdit_hymt2_root.setText(display_path(path))
 
     def browse(self, kind):
         filter_text = "llama-server.exe (llama-server.exe)" if kind == "server" else "GGUF 模型 (*.gguf)"
         path, _ = QFileDialog.getOpenFileName(
-            self.window, "选择服务程序" if kind == "server" else "选择 Hy-MT2 模型", "", filter_text
+            self.window, "选择服务程序" if kind == "server" else "选择 GGUF 模型", "", filter_text
         )
         if path:
+            path = display_path(path)
             combo = getattr(self.ui, f"comboBox_hymt2_{kind}")
             if combo.findText(path) < 0:
                 combo.addItem(path)

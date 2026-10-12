@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import QLabel, QLineEdit, QPushButton, QSpinBox
 from mdcx.config.manager import manager
 from mdcx.llm import is_loopback_url
 
-from .local_model_settings import LocalModelController, setup_local_model_controls
+from .local_model_settings import LocalModelController, display_path, setup_local_model_controls
 from .settings_layout import group_layout, normalize_controls, setting_row, stack_settings_page
 
 
@@ -21,7 +21,7 @@ def setup_llm_settings(window):
         control.setMinimumHeight(30)
         return setting_row(grid, index, title, control)
 
-    ui.pushButton_local_hymt2 = QPushButton("将本机 Hy-MT2 设为备用")
+    ui.pushButton_local_hymt2 = QPushButton("将所选本机模型设为备用")
     grid.addWidget(ui.pushButton_local_hymt2, 13, 1)
     timeout = row(14, "主模型超时（秒）：", "spinBox_llm_read_timeout", QSpinBox())
     timeout.setRange(1, 86400)
@@ -34,7 +34,7 @@ def setup_llm_settings(window):
     timeout = row(19, "备用超时（秒）：", "spinBox_llm_fallback_read_timeout", QSpinBox())
     timeout.setRange(1, 86400)
     ui.lineEdit_llm_key.setEchoMode(QLineEdit.EchoMode.Password)
-    ui.label_llm_url_desc.setText("主接口保留你的 DeepSeek 云端配置；本机 Hy-MT2 填入下方备用接口。")
+    ui.label_llm_url_desc.setText("主接口保留你的 DeepSeek 云端配置；所选本机模型填入下方备用接口。")
     ui.label_llm_url_desc.setWordWrap(True)
     ui.label_llm_max_try.setText("云端主模型尝试：")
     ui.label_llm_max_try_desc.setText("仅云端主模型请求错误使用；本机及备用每一步只请求一次。")
@@ -72,11 +72,11 @@ def load_llm_settings(window):
     ui.lineEdit_llm_fallback_model.setText(tc.llm_fallback_model)
     ui.lineEdit_llm_fallback_key.setText(tc.llm_fallback_key)
     ui.spinBox_llm_fallback_read_timeout.setValue(tc.llm_fallback_read_timeout)
-    ui.lineEdit_hymt2_root.setText(tc.local_model_search_root)
+    ui.lineEdit_hymt2_root.setText(display_path(tc.local_model_search_root))
     ui.comboBox_hymt2_server.clear()
-    ui.comboBox_hymt2_server.addItem(tc.local_model_server_path)
+    ui.comboBox_hymt2_server.addItem(display_path(tc.local_model_server_path))
     ui.comboBox_hymt2_model.clear()
-    ui.comboBox_hymt2_model.addItem(tc.local_model_path)
+    ui.comboBox_hymt2_model.addItem(display_path(tc.local_model_path))
 
 
 def save_llm_settings(window):
