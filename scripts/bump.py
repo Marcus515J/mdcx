@@ -1,4 +1,5 @@
 import re
+import subprocess
 from pathlib import Path
 from typing import Annotated
 
@@ -6,6 +7,8 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
+
+from mdcx.version import normalize_version, parse_version, read_source_version
 
 app = typer.Typer(
     name="bump",
@@ -36,39 +39,55 @@ def get_consts_file() -> Path:
     return consts_file
 
 
-def get_current_version() -> int:
+def get_current_version() -> str:
     """从 consts.py 中获取当前版本号"""
-    consts_file = get_consts_file()
-    content = consts_file.read_text(encoding="utf-8")
-
-    # 匹配 LOCAL_VERSION = 数字
-    match = re.search(r"LOCAL_VERSION\s*=\s*(\d+)", content)
-    if not match:
-        raise ValueError("在 consts.py 中找不到 LOCAL_VERSION")
-
-    return int(match.group(1))
+    return read_source_version(get_consts_file())
 
 
-def update_version(new_version: int) -> None:
-    """更新 consts.py 中的版本号"""
+def update_version(new_version: str) -> None:
+    """Keep application, Python metadata and the locked project version in sync."""
+    new_version = normalize_version(new_version)
     consts_file = get_consts_file()
     content = consts_file.read_text(encoding="utf-8")
 
     # 替换版本号
-    pattern = r"(LOCAL_VERSION\s*=\s*)\d+"
-    replacement = rf"\g<1>{new_version}"
-    new_content = re.sub(pattern, replacement, content)
+    pattern = r'(LOCAL_VERSION\s*=\s*)([\'"])[^\'"]+\2'
+    new_content, count = re.subn(pattern, lambda m: f'{m[1]}"{new_version}"', content)
 
-    if new_content == content:
+    if count != 1:
         raise ValueError("版本号替换失败，请检查 consts.py 文件格式")
 
-    consts_file.write_text(new_content, encoding="utf-8")
+    root = consts_file.parent.parent
+    numeric = new_version.removeprefix("v")
+    updates = {consts_file: new_content}
+    for name, pattern in (
+        ("pyproject.toml", r'(\[project\]\nname = "mdcx"\nversion = ")[^"]+("\n)'),
+        ("uv.lock", r'(\[\[package\]\]\nname = "mdcx"\nversion = ")[^"]+("\n)'),
+    ):
+        path = root / name
+        updated, count = re.subn(pattern, lambda m: m[1] + numeric + m[2], path.read_text(encoding="utf-8"))
+        if count != 1:
+            raise ValueError(f"无法定位 {name} 中的项目版本，未写入任何文件")
+        updates[path] = updated
+    for path, text in updates.items():
+        path.write_text(text, encoding="utf-8")
+
+
+def bumped_version(current: str, part: str) -> str:
+    major, minor, patch = parse_version(current)
+    if part == "major":
+        return f"v{major + 1}.0.0"
+    if part == "minor":
+        return f"v{major}.{minor + 1}.0"
+    if part == "patch":
+        return f"v{major}.{minor}.{patch + 1}"
+    raise ValueError("--part 必须是 major、minor 或 patch")
 
 
 @app.command()
 def main(
-    version: Annotated[int | None, typer.Option("--version", "-v", help="新版本号")] = None,
-    increment: Annotated[int, typer.Option("--increment", "-i", help="版本号增量")] = 1,
+    version: Annotated[str | None, typer.Option("--version", "-v", help="新版本号，如 v1.1.0")] = None,
+    part: Annotated[str, typer.Option("--part", "-p", help="递增 major、minor 或 patch")] = "patch",
     dry_run: Annotated[bool, typer.Option("--dry-run", "-n", help="预览模式")] = False,
     force: Annotated[bool, typer.Option("--force", "-f", help="强制执行")] = False,
 ) -> None:
@@ -77,10 +96,10 @@ def main(
 
     [bold green]示例:[/bold green]
 
-    • [cyan]python bump.py[/cyan] - 版本号 +1
-    • [cyan]python bump.py --version 220250902[/cyan] - 设置为指定版本号
-    • [cyan]python bump.py --increment 10[/cyan] - 版本号 +10
-    • [cyan]python bump.py --dry-run[/cyan] - 预览模式
+    • [cyan]uv run bump[/cyan] - 修订号 +1
+    • [cyan]uv run bump --part minor[/cyan] - 次版本 +1，修订号归零
+    • [cyan]uv run bump --version v1.1.0[/cyan] - 设置指定版本号
+    • [cyan]uv run bump --dry-run[/cyan] - 预览模式
     """
     try:
         # 获取当前版本号
@@ -88,9 +107,9 @@ def main(
 
         # 计算新版本号
         if version is not None:
-            new_version = version
+            new_version = normalize_version(version)
         else:
-            new_version = current_version + increment
+            new_version = bumped_version(current_version, part)
 
         # 显示版本信息
         console.print(
@@ -106,6 +125,9 @@ def main(
             console.print("[yellow]版本号没有变化，无需更新[/yellow]")
             return
 
+        if parse_version(new_version) < parse_version(current_version):
+            raise ValueError("新版本不能小于当前版本")
+
         if dry_run:
             console.print("[cyan]预览模式：不会实际修改文件[/cyan]")
             return
@@ -118,6 +140,7 @@ def main(
 
         # 更新版本号
         update_version(new_version)
+        subprocess.run(["uv", "lock", "--check", "--offline"], cwd=get_project_root(), check=True)
 
         console.print(
             Panel.fit(

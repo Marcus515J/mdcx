@@ -1,141 +1,129 @@
-name: Build and Release with Python3.13
+name: Build and Release
 
 on:
-  release:
-    types: [published]
   push:
     tags:
-      - 220*
+      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag"
+        description: '正式版本标签，如 v1.1.0'
         required: true
-      prerelease:
-        description: "是否作为预发布（pre-release）"
-        required: false
-        default: "false"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  QT_QPA_PLATFORM: offscreen
+  PYTHONIOENCODING: utf-8
 
 jobs:
-  init-matrix:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      # https://github.com/actions/runner/issues/1985#issuecomment-1573518052
-      - name: Set matrix
-        id: set-matrix
-        run: |
-          items=()
-
-          # https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners
-
-          items+=('{"build": "macos", "os": "macos-latest", "arch": "aarch64"}')
-          items+=('{"build": "windows", "os": "windows-latest", "arch": "x86_64"}')
-
-          # 合并items到json数组
-          matrix="matrix=["
-          for ((i=0; i<${#items[@]}; i++)); do
-            matrix+=" ${items[i]}"
-            if ((i != ${#items[@]}-1)); then
-              matrix+=","
-            fi
-          done
-          matrix+="]"
-
-          # 输出matrix到GITHUB_OUTPUT
-          echo $matrix >> $GITHUB_OUTPUT
-
-  build-app:
-    needs: init-matrix
-    runs-on: ${{ matrix.os }}
+  build:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{fromJson(needs.init-matrix.outputs.matrix)}}
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+            extension: exe
+          - os: macos-latest
+            platform: macos-aarch64
+            extension: dmg
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
+          ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
-          fetch-tags: true
-
-      - name: "Set up Python"
-        uses: actions/setup-python@v5
+      - uses: astral-sh/setup-uv@v6
         with:
-          python-version: "3.13"
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v6
-        with:
+          python-version: '3.13'
           activate-environment: true
-
-      - name: Set up python env
-        run: uv sync --locked --all-extras --dev
-
-      - name: Build macOS app - macOS
-        if: ${{ matrix.build == 'macos' }}
+      - name: Install locked dependencies
+        run: uv sync --locked --dev
+      - name: Validate release versions and affected behavior
+        shell: bash
         run: |
-          version="${{ github.ref_name }}"
-          # 如果是手动触发，则使用输入的tag
-          if [ -n "${{ github.event.inputs.tag }}" ]; then
-            version="${{ github.event.inputs.tag }}"
-          fi
-          uv run scripts/build.py --create-dmg --version "$version" --debug
-
-      - name: Build Windows app - Windows
-        if: ${{ matrix.build == 'windows' }}
+          uv run --locked python scripts/check_release_version.py "$RELEASE_TAG"
+          uv run --locked pytest -q tests/test_version.py tests/test_release_version.py tests/test_config_conversion.py
+      - name: Build Windows application
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          uv run --locked python scripts/build.py --version "$RELEASE_TAG" --debug
+          uv run --locked python scripts/check_release_version.py "$RELEASE_TAG" --bundle dist/MDCx.exe
+      - name: Build macOS application
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          uv run --locked python scripts/build.py --version "$RELEASE_TAG" --create-dmg --debug
+          uv run --locked python scripts/check_release_version.py "$RELEASE_TAG" --bundle dist/MDCx.app
+      - name: Name installer with the release version
+        shell: bash
         env:
-          PYTHONIOENCODING: utf-8
-        run: uv run scripts/build.py --debug
-
-      - name: Get changelog
-        id: get-changelog
-        shell: bash
+          INSTALLER_PLATFORM: ${{ matrix.platform }}
+          INSTALLER_EXTENSION: ${{ matrix.extension }}
         run: |
-          if [ ! -s changelog.md ]; then
-            echo "changelog.md 不存在或为空，无法生成 Release 说明。"
-            exit 1
-          fi
+          mkdir -p release-assets
+          cp "dist/MDCx.$INSTALLER_EXTENSION" "release-assets/MDCx-$RELEASE_TAG-$INSTALLER_PLATFORM.$INSTALLER_EXTENSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
 
-          delimiter="__MDCX_CHANGELOG_EOF__"
-          {
-            echo "CHANGELOG<<$delimiter"
-            cat changelog.md
-            echo
-            echo "$delimiter"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Resolve release type
-        id: release-type
-        shell: bash
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Check assets and generate checksums
+        working-directory: release-assets
         run: |
-          prerelease=false
-          if [ "${{ github.event_name }}" = "release" ]; then
-            prerelease="${{ github.event.release.prerelease }}"
-          elif [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
-            prerelease=true
-          fi
-          echo "prerelease=$prerelease" >> $GITHUB_OUTPUT
-
-      - name: Create Release - macOS
-        uses: svenstaro/upload-release-action@v2
-        if: ${{ matrix.build == 'macos' }}
+          test -s "MDCx-$RELEASE_TAG-windows-x86_64.exe"
+          test -s "MDCx-$RELEASE_TAG-macos-aarch64.dmg"
+          sha256sum "MDCx-$RELEASE_TAG-windows-x86_64.exe" "MDCx-$RELEASE_TAG-macos-aarch64.dmg" > "MDCx-$RELEASE_TAG-SHA256SUMS.txt"
+      - name: Create complete release as draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --title "MDCx $RELEASE_TAG" --notes-file changelog.md
+      - name: Publish validated release and retire the date-numbered release
+        uses: actions/github-script@v7
         with:
-          overwrite: true
-          asset_name: MDCx-$tag-${{ matrix.build }}-${{ matrix.arch }}${{ matrix.tail }}-${{ github.sha }}.dmg
-          file: dist/MDCx.dmg
-          prerelease: ${{ steps.release-type.outputs.prerelease }}
-          body: ${{ steps.get-changelog.outputs.CHANGELOG }}
-          tag: ${{ github.event.inputs.tag || github.ref }}
-
-      - name: Create Release - Windows
-        uses: svenstaro/upload-release-action@v2
-        if: ${{ matrix.build == 'windows' }}
-        with:
-          overwrite: true
-          asset_name: MDCx-$tag-${{ matrix.build }}-${{ matrix.arch }}${{ matrix.tail }}-${{ github.sha }}.exe
-          file: dist/MDCx.exe
-          prerelease: ${{ steps.release-type.outputs.prerelease }}
-          body: ${{ steps.get-changelog.outputs.CHANGELOG }}
-          tag: ${{ github.event.inputs.tag || github.ref }}
+          script: |
+            const tag = process.env.RELEASE_TAG;
+            const repo = { owner: context.repo.owner, repo: context.repo.repo };
+            const { data: release } = await github.rest.repos.getReleaseByTag({ ...repo, tag });
+            const names = new Set(release.assets.filter(asset => asset.state === 'uploaded' && asset.size > 0).map(asset => asset.name));
+            for (const name of [`MDCx-${tag}-windows-x86_64.exe`, `MDCx-${tag}-macos-aarch64.dmg`, `MDCx-${tag}-SHA256SUMS.txt`]) {
+              if (!names.has(name)) throw new Error(`Missing validated asset: ${name}`);
+            }
+            await github.rest.repos.updateRelease({ ...repo, release_id: release.id, draft: false, prerelease: false, make_latest: 'true' });
+            if (tag === 'v1.1.0') {
+              let legacy;
+              try {
+                legacy = (await github.rest.repos.getReleaseByTag({ ...repo, tag: '220261012' })).data;
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+              if (legacy) {
+                const notice = `> 此日期编号版已由 [MDCx ${tag}](https://github.com/${repo.owner}/${repo.repo}/releases/tag/${tag}) 替代。正式版本沿用 v1.x.x。请下载新成品，沿用原配置；旧程序的整数更新检查不能解析新标签，需要手动替换一次。\n\n`;
+                await github.rest.repos.updateRelease({ ...repo, release_id: legacy.id, name: '[已替代] MDCx 220261012', prerelease: true, make_latest: 'false', body: notice + (legacy.body || '') });
+              }
+            }

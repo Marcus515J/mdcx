@@ -8,6 +8,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
+from mdcx.version import normalize_version, read_source_version
+
 
 def configure_stdio_utf8() -> None:
     """确保在 Windows CI 等场景下也能输出中文日志。"""
@@ -125,9 +127,16 @@ def get_commit_log(from_tag: str) -> str:
     return run_git_command(command)
 
 
-def generate_changelog(commit_log: str, output_file: Path) -> None:
+def generate_changelog(commit_log: str, output_file: Path, version: str | None = None) -> None:
     """生成changelog内容并写入文件"""
-    changelog_content = f"""## 新增
+    version = (
+        normalize_version(version)
+        if version
+        else read_source_version(Path(__file__).resolve().parents[1] / "mdcx/consts.py")
+    )
+    changelog_content = f"""# MDCx {version}
+
+## 新增
 *
 
 ## 修复
@@ -150,7 +159,7 @@ def generate_changelog(commit_log: str, output_file: Path) -> None:
 
 @app.command()
 def main(
-    pattern: Annotated[str, typer.Option("--pattern", "-p", help="Git tag匹配模式")] = "220*",
+    pattern: Annotated[str, typer.Option("--pattern", "-p", help="Git tag匹配模式")] = "v*.*.*",
     output: Annotated[str, typer.Option("--output", "-o", help="输出文件路径")] = "changelog.md",
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="显示详细信息")] = False,
     tag: Annotated[str, typer.Option("--tag", help="当前发布 tag（用于 release 工作流）")] = "",
@@ -203,7 +212,7 @@ def main(
 
     # 生成changelog
     console.print(f"[yellow]正在生成changelog到 {output_path}...[/yellow]")
-    generate_changelog(commit_log, output_path)
+    generate_changelog(commit_log, output_path, version=tag or None)
 
     # 显示成功信息
     success_text = Text("Changelog生成完成!", style="bold green")
