@@ -228,18 +228,13 @@ def migrate_config_data(data: dict[str, Any]) -> list[str]:
             if isinstance(raw_translate_by, str):
                 raw_translate_by = _str_to_list(raw_translate_by, ",")
             if isinstance(raw_translate_by, list):
-                if not raw_translate_by:
-                    translate_config["translate_by"] = []
+                kept = [
+                    Translator.LLM.value for item in raw_translate_by if item in (Translator.LLM, Translator.LLM.value)
+                ]
+                if kept:
+                    translate_config["translate_by"] = kept
                 else:
-                    kept = [
-                        Translator.LLM.value
-                        for item in raw_translate_by
-                        if item in (Translator.LLM, Translator.LLM.value)
-                    ]
-                    if kept:
-                        translate_config["translate_by"] = kept
-                    else:
-                        translate_config["translate_by"] = [Translator.LLM.value]
+                    translate_config["translate_by"] = [Translator.LLM.value]
             else:
                 translate_config["translate_by"] = [Translator.LLM.value]
     if isinstance(old_prompt := data.get("llm_prompt"), str):

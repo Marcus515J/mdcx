@@ -113,8 +113,6 @@ class TranslateConfig(BaseModel):
         if isinstance(value, str):
             value = str_to_list(value, ",")
         if isinstance(value, list):
-            if not value:
-                return []
             kept = [Translator.LLM for item in value if item in (Translator.LLM, Translator.LLM.value)]
             if kept:
                 return kept

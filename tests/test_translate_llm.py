@@ -347,7 +347,7 @@ def test_r3_legacy_config_only_google_migrates_to_llm(tmp_path, monkeypatch: pyt
     assert mgr.config.translate_config.translate_by == [Translator.LLM]
 
 
-def test_r3_config_empty_translate_by_remains_empty_on_load_and_save_reload(tmp_path, monkeypatch: pytest.MonkeyPatch):
+def test_r3_config_empty_list_becomes_llm(tmp_path, monkeypatch: pytest.MonkeyPatch):
     import json
 
     from mdcx.config.manager import ConfigManager
@@ -364,54 +364,24 @@ def test_r3_config_empty_translate_by_remains_empty_on_load_and_save_reload(tmp_
     mgr = ConfigManager()
     errors = mgr.load()
     assert not any("验证失败" in err for err in errors)
-    assert mgr.config.translate_config.translate_by == []
+    assert mgr.config.translate_config.translate_by == [Translator.LLM]
 
     mgr.save()
     saved_raw = json.loads(cfg_file.read_text(encoding="UTF-8"))
-    assert saved_raw["translate_config"]["translate_by"] == []
+    assert saved_raw["translate_config"]["translate_by"] == ["llm"]
 
     reload_errors = mgr.load()
     assert not any("验证失败" in err for err in reload_errors)
-    assert mgr.config.translate_config.translate_by == []
+    assert mgr.config.translate_config.translate_by == [Translator.LLM]
 
 
-@pytest.mark.asyncio
-async def test_r3_empty_translate_by_does_not_call_translate_engine(monkeypatch: pytest.MonkeyPatch):
-    from unittest.mock import AsyncMock
+def test_empty_translate_by_model_and_migration():
+    from mdcx.config.migrations import migrate_config_data
+    from mdcx.config.models import TranslateConfig
 
-    from mdcx.core import translate as core_translate
+    tc = TranslateConfig.model_validate({"translate_by": []})
+    assert tc.translate_by == [Translator.LLM]
 
-    class _FieldCfg:
-        def __init__(self, language: Language, translate: bool):
-            self.language = language
-            self.translate = translate
-
-    class _TranslateCfg:
-        def __init__(self):
-            self.translate_by = []
-
-    class _Cfg:
-        def __init__(self):
-            self.translate_config = _TranslateCfg()
-
-        def get_field_config(self, _field):
-            return _FieldCfg(Language.ZH_CN, True)
-
-    class _Manager:
-        def __init__(self):
-            self.config = _Cfg()
-
-    mock_translate_with_engine = AsyncMock()
-    monkeypatch.setattr(core_translate, "manager", _Manager())
-    monkeypatch.setattr(core_translate, "translate_with_engine", mock_translate_with_engine)
-
-    data = CrawlersResult.empty()
-    data.title = "乳首快楽"
-    data.outline = "女優の物語"
-
-    await core_translate.translate_title_outline(data, cd_part="", movie_number="ABC-123")
-
-    mock_translate_with_engine.assert_not_called()
-    assert mock_translate_with_engine.call_count == 0
-    assert data.title == "乳首快楽"
-    assert data.outline == "女優の物語"
+    data = {"translate_config": {"translate_by": []}}
+    migrate_config_data(data)
+    assert data["translate_config"]["translate_by"] == [Translator.LLM.value]
