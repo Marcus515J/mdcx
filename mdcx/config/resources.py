@@ -33,6 +33,7 @@ class Resources:
         # 获取资源路径
         self.actor_map_backup_path = self.r("mapping_table/mapping_actor.xml")  # 内置演员映射表的文件路径
         self.info_map_backup_path = self.r("mapping_table/mapping_info.xml")  # 内置信息映射表的文件路径
+        self.cookie_help_path = self.r("html/cookie_help.html")  # 内置 Cookie 获取教程路径
 
         self.icon_ico = self.qtr("Img/MDCx.ico")  # 任务栏图标
         self.right_menu = self.qtr("Img/menu.svg")  # 主界面菜单按钮

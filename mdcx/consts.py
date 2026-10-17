@@ -8,6 +8,10 @@ GITHUB_REPO = "Marcus515J/mdcx"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 GITHUB_RELEASES_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
 
+GITHUB_RESOURCES_REPO = "Marcus515J/mdcx-resources"
+GITHUB_RESOURCES_RELEASES_URL = f"https://github.com/{GITHUB_RESOURCES_REPO}/releases"
+
+
 os_name = platform.system()
 mac_ver = platform.mac_ver()[0]
 IS_WINDOWS = os_name == "Windows"

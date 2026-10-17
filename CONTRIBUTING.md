@@ -63,35 +63,38 @@ uv run --locked python scripts/build.py --version v1.1.0 --debug
 
 ## 如何添加新配置项
 
-1. 在 `mdcx/config/models.py` `Config` 类中添加配置字段及默认值
-2. 通过 `from mdcx.models.config.manager import manager` 导入配置, 并通过 `manager.config.<key>` 访问配置项
-3. 按下一节所述在设置界面中添加对应的控件, 修改 `mdcx/controllers/main_window/` 目录下 `load_config.py` 及 `save_config.py`, 以实现 UI 绑定
+1. 在 `mdcx/config/models.py` 的 `Config` 类或对应子模型（如 `TranslateConfig`）中添加配置字段及默认值，如需兼容旧配置可在 `mdcx/config/migrations.py` 中补充迁移规则
+2. 通过 `from mdcx.config.manager import manager` 导入配置管理器，并通过 `manager.config.<key>`（或子模型属性）访问配置项
+3. 按下一节所述在设置界面中添加对应的控件，修改 `mdcx/controllers/main_window/` 目录下的 `load_config.py` 及 `save_config.py`（或如 `llm_settings.py`、`file_cleanup_settings.py` 等独立设置模块）以实现 UI 绑定
 
 ## 如何修改图形界面
 
-* `mdcx/views/MDCx.ui` 定义了主窗口, `mdcx/views/posterCutTool.ui` 是图片裁剪窗口, 可使用 Qt Designer 或 Qt Creator 编辑
-* 修改后运行 `./scripts/pyuic.sh` 生成对应的 Python 代码
-* 如需设置控件事件等, 需修改 `mdcx.controllers.main_window.init.Init_Singal`
-* 所有事件处理函数均在 `mdcx/controllers/main_window/main_window.py` 及 `mdcx/controllers/main_window/handlers.py`
+* `mdcx/views/MDCx.ui` 定义了主窗口，`mdcx/views/posterCutTool.ui` 是图片裁剪窗口，可使用 Qt Designer 或 Qt Creator 编辑
+* 修改后运行 `sh scripts/pyuic.sh` 生成对应的 Python 代码（不要直接手改生成的 `MDCx.py`）
+* 如需设置控件初始化或信号绑定，需修改 `mdcx/controllers/main_window/init.py` 中的 `Init_Ui` 或对应的独立设置控制器模块
+* 主窗口事件处理函数分布在 `mdcx/controllers/main_window/main_window.py`、`mdcx/controllers/main_window/handlers.py` 及同目录下的专题模块中
 
 ## 代码结构说明
 
 ```bash
 mdcx
 ├── mdcx # 源代码目录
-│   ├── config # 配置管理
+│   ├── base # 基础网络、翻译、文件与视频处理
+│   ├── config # 配置模型、迁移、资源与管理器
 │   ├── controllers # Qt UI 控制器
 │   │   └── main_window
-│   ├── crawlers # 各网站爬虫
-│   ├── models # 业务逻辑
-│   │   ├── base
-│   │   ├── core
-│   │   └── tools
-│   ├── utils
-│   └── views # Qt UI 定义
+│   ├── core # 核心刮削、翻译、NFO 与文件整理流程
+│   ├── crawlers # 各网站爬虫与新版解析框架
+│   ├── models # 枚举、标志位与数据类型定义
+│   ├── tools # 演员头像、Emby/Jellyfin 维基补全等附属工具
+│   ├── utils # 通用工具函数
+│   └── views # Qt UI 定义 (.ui) 与生成代码 (.py)
 ├── scripts # 开发/构建脚本
-│   ├── build.sh # 构建 Qt 版本
-│   ├── changelog.sh # 生成变更日志模板
+│   ├── build.py # 构建桌面应用包
+│   ├── bump.py # 同步递增项目版本号
+│   ├── changelog.py # 生成变更日志模板
+│   ├── check_release_version.py # 校验发布版本号一致性
 │   └── pyuic.sh # 从 Qt UI 生成 Python 代码
 └── tests # 测试
 ```
+

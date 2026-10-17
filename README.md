@@ -15,9 +15,12 @@
 
 向相关开发者表示敬意.
 
-## 构建
+## 功能与版本说明
 
 正式功能说明：[文件清理](docs/garbage-cleanup.md)、[云端翻译与本机备用](docs/llm-refusal.md)、[本机模型管理](docs/local-models.md)。
+
+* **翻译引擎**：仅保留大模型（LLM）翻译（支持 OpenAI 兼容云端主接口与本机备用模型、独立主备温度），旧版谷歌、百度、DeepL、DeepLX 引擎已移除（旧配置自动平滑迁移）。
+* **扩展资源**：演员头像包、字幕包、水印包及演员资料库等第三方资源统一托管于私有资源仓库，需使用有访问权限的账号登录下载。
 
 > 一般情况无需自行构建，请到[本仓库 Releases](https://github.com/Marcus515J/mdcx/releases) 下载发布版本。
 > 当前提供 Apple 芯片 Mac（macOS aarch64）和 Windows x86_64 安装包；上游仓库的版本与本仓库独立发布。
