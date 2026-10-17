@@ -48,7 +48,7 @@
 | # | 事项 | 状态 | 谁 |
 |---|---|---|---|
 | 1 | 需求 C 代码 | 已完成，§5 九条达标（Claude 已审核，见任务单 v1.4 §1） | Codex |
-| 2 | Windows 测试版 EXE | 任务单 v1.4，待执行 | Antigravity |
+| 2 | Windows 测试版 EXE | 已构建：run 39016236575，artifact `windows-x86_64-test-989b825`（zip 152,870,080 字节，GitHub 记录的 zip SHA256 `783f5894…7bb4`，约 10-31 过期）。EXE 内显示版本仍为 v1.1.0，认文件名 `TEST-989b825`。Claude 审核：不需要 r2，用户在 Windows 下载后核对 zip 大小即可 | Antigravity |
 | 3 | 实测验收 | 按任务单 v1.3 §6，用 SSNI-126 / PDVIJ-001 / PRED-110；**等启动检测完成后再点刮削** | 你 |
 | 3a | 检测与刮削抢 `/html` 名额 | 已知风险，汇报 §6 写明；实测后再决定改不改 | Claude 定 |
 | 4 | 实测前读出容器当前 WORKERS 等值 | 未做，到时一步步带 | 你 + Claude |
