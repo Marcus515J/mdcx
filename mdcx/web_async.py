@@ -8,6 +8,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -39,6 +40,25 @@ from .utils import collapse_inline_script_splits
 # A thread lock protects the FIFO so separate event loops also share one slot.
 _html_queue: deque[object] = deque()
 _html_queue_lock = threading.Lock()
+
+
+class SiteCircuitOpen(Exception):
+    pass
+
+
+@dataclass
+class CrawlRequestState:
+    is_blocked: Callable[[], bool]
+    request_failed: bool = False
+
+
+crawl_request_state: ContextVar[CrawlRequestState | None] = ContextVar("crawl_request_state", default=None)
+
+
+def _check_site_circuit() -> None:
+    state = crawl_request_state.get()
+    if state is not None and state.is_blocked():
+        raise SiteCircuitOpen("站点已断路，本次运行不再请求")
 
 
 @contextlib.asynccontextmanager
@@ -333,12 +353,14 @@ class AsyncWebClient:
         cf_bypass_url: str = "",
         cf_bypass_proxy: str | None = None,
         cf_bypass_timeout: float = 90,
+        site_total_timeout: float = 120,
         log_fn: Callable[[str], None] | None = None,
         limiters: AsyncWebLimiters | None = None,
     ):
         self.retry = retry
         self.proxy = proxy
         self.timeout = timeout
+        self.site_total_timeout = float(site_total_timeout)
         self.max_clients = 100
         self._session_kwargs = {
             "max_clients": self.max_clients,
@@ -530,6 +552,7 @@ class AsyncWebClient:
         )
 
     async def _curl_request(self, *, fingerprint: BrowserFingerprint | None = None, **kwargs) -> Response:
+        _check_site_circuit()
         url = str(kwargs.get("url") or "")
         proxy = kwargs.get("proxy")
         pool_key = HostPoolManager.key_for_request(url, str(proxy) if proxy else None, fingerprint)
@@ -540,6 +563,7 @@ class AsyncWebClient:
         session, generation = await pool.begin_request()
         release_now = True
         try:
+            _check_site_circuit()
             coro = session.request(**kwargs)
             timeout_seconds = self._request_timeout_seconds(kwargs.get("timeout"))
             if timeout_seconds is None:
@@ -1015,6 +1039,8 @@ class AsyncWebClient:
                     allow_redirects=False,
                 )
                 error = ""
+            except SiteCircuitOpen:
+                raise
             except Timeout:
                 response = None
                 error = "mirror 请求超时"
@@ -1442,6 +1468,8 @@ class AsyncWebClient:
                             self._cf_host_challenge_hits[host] = 0
                         await self._record_transport_success(pool_key=pool_key)
                         return resp, ""
+                except SiteCircuitOpen:
+                    raise
                 except Timeout:
                     error_msg = "连接超时"
                     retry = True  # 超时错误进行重试
@@ -1475,11 +1503,21 @@ class AsyncWebClient:
                     if sleep_after_cf_bypass and host:
                         self._log_cf(f"⏳ bypass 后退避 {sleep_seconds:.2f}s", host)
                     await asyncio.sleep(sleep_seconds)
+            self._record_crawl_failure(error_msg)
             return None, f"{method} {url} 失败: {error_msg}"
+        except SiteCircuitOpen:
+            raise
         except Exception as e:
             error_msg = f"{method} {url} 未知错误:  {str(e)}"
             self._log(f"🔴 {error_msg}")
+            self._record_crawl_failure(error_msg)
             return None, error_msg
+
+    def _record_crawl_failure(self, error: str) -> None:
+        state = crawl_request_state.get()
+        # A missing number is a normal result, including mirror's terminal 404.
+        if state is not None and not re.search(r"\bHTTP 404\b", error):
+            state.request_failed = True
 
     async def get_text(
         self,

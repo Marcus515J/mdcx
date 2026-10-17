@@ -821,6 +821,7 @@
   "cf_bypass_url": "",
   "cf_bypass_proxy": "",
   "cf_bypass_timeout": 90,
+  "site_total_timeout": 120,
   "timeout": 10,
   "retry": 5,
   "theporndb_api_token": "",

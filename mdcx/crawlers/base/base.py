@@ -1,17 +1,27 @@
+import asyncio
 import time
 import traceback
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Never
 
 from parsel import Selector
 
 from mdcx.config.models import Website
 from mdcx.models.types import CrawlerInput, CrawlerResponse, CrawlerResult
+from mdcx.web_async import CrawlRequestState, SiteCircuitOpen, crawl_request_state
 
 from .types import Context, CralwerException, CrawlerData
 
 if TYPE_CHECKING:
     from mdcx.web_async import AsyncWebClient
+
+
+@dataclass
+class _NumberBudget:
+    remaining: float
+    deadline: float = 0
+    active: int = 0
 
 
 class GenericBaseCrawler[T: Context = Context](ABC):
@@ -38,6 +48,9 @@ class GenericBaseCrawler[T: Context = Context](ABC):
         self.async_client = client
         self.base_url: str = base_url or self.base_url_()
         self.browser = browser
+        self._site_failure = ""
+        self._skip_logged = False
+        self._number_budgets: dict[str, _NumberBudget] = {}
 
     async def close(self):
         """释放资源."""
@@ -84,15 +97,51 @@ class GenericBaseCrawler[T: Context = Context](ABC):
         ctx = self.new_context(input)
         ctx.debug(f"{input=}")
 
+        if self._site_failure:
+            if not self._skip_logged:
+                self.async_client._log(f"⏭ [断路器] {self.site().value} 本次运行跳过后续番号：{self._site_failure}")
+                self._skip_logged = True
+            ctx.debug_info.error = SiteCircuitOpen(self._site_failure)
+            return CrawlerResponse(debug_info=ctx.debug_info)
+
+        # Keep lightweight HTTP clients used by parser callers compatible.
+        total_timeout = getattr(self.async_client, "site_total_timeout", 120)
+        loop = asyncio.get_running_loop()
+        budget = self._number_budgets.setdefault(input.number, _NumberBudget(remaining=total_timeout))
+        if budget.active == 0:
+            budget.deadline = loop.time() + budget.remaining
+        budget.active += 1
+        state = CrawlRequestState(is_blocked=lambda: bool(self._site_failure))
+        token = crawl_request_state.set(state)
         try:
-            data = await self._run(ctx)
+            async with asyncio.timeout_at(budget.deadline):
+                data = await self._run(ctx)
+            if data is None and state.request_failed:
+                self._open_circuit("允许的请求尝试已耗尽，未取得页面")
             return CrawlerResponse(data=data, debug_info=ctx.debug_info)
+        except TimeoutError:
+            reason = f"单站单番号总等待超限 ({total_timeout:g}s)，番号={input.number}"
+            self._open_circuit(reason)
+            ctx.debug(reason)
+            ctx.debug_info.error = TimeoutError(reason)
+            return CrawlerResponse(debug_info=ctx.debug_info)
         except Exception as e:
             ctx.debug(traceback.format_exc())
             ctx.debug_info.error = e
+            if state.request_failed:
+                self._open_circuit("允许的请求尝试已耗尽，未取得页面")
             return CrawlerResponse(debug_info=ctx.debug_info)
         finally:
+            budget.active -= 1
+            if budget.active == 0:
+                budget.remaining = max(budget.deadline - loop.time(), 0)
+            crawl_request_state.reset(token)
             ctx.debug_info.execution_time = time.time() - start_time
+
+    def _open_circuit(self, reason: str) -> None:
+        if not self._site_failure:
+            self._site_failure = reason
+            self.async_client._log(f"🚫 [断路器] {self.site().value} 本次运行停用：{reason}")
 
     async def _run(self, ctx: T):
         if not ctx.input.appoint_url:
