@@ -1,0 +1,48 @@
+# 临时：测试构建，合并前删除
+name: Test Build (Windows, temporary)
+
+on:
+  push:
+    branches:
+      - codex/cf-bypass-run-budget
+
+permissions:
+  contents: read
+
+env:
+  QT_QPA_PLATFORM: offscreen
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 989b825e3e68b240231f15b9a2240ceb8d4eee1e
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+          activate-environment: true
+      - name: Install locked dependencies
+        run: uv sync --locked --dev
+      - name: Read source version
+        id: ver
+        shell: bash
+        run: echo "version=$(uv run --locked python -c \"from pathlib import Path; from mdcx.version import read_source_version; print(read_source_version(Path('mdcx/consts.py')))\")" >> "$GITHUB_OUTPUT"
+      - name: Build Windows application
+        shell: bash
+        run: uv run --locked python scripts/build.py --version "${{ steps.ver.outputs.version }}" --debug
+      - name: Name test build
+        shell: bash
+        run: |
+          mkdir -p test-assets
+          cp dist/MDCx.exe "test-assets/MDCx-${{ steps.ver.outputs.version }}-TEST-989b825-windows-x86_64.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-test-989b825
+          path: test-assets/*
+          if-no-files-found: error
+          retention-days: 14
