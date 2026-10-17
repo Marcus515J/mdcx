@@ -1,4 +1,3 @@
-import random
 import re
 import time
 
@@ -9,11 +8,10 @@ from ..base.translate import (
     translate_with_engine,
 )
 from ..base.web import get_actorname
-from ..config.enums import FieldRule, FixedScrapingType, Language, TagInclude, Translator
+from ..config.enums import FieldRule, FixedScrapingType, Language, TagInclude
 from ..config.manager import manager
 from ..config.resources import resources
 from ..gen.field_enums import CrawlerResultFields
-from ..llm import is_loopback_url
 from ..models.log_buffer import LogBuffer
 from ..models.types import CrawlersResult
 from ..number import get_number_letters
@@ -285,9 +283,6 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
     ):
         start_time = time.time()
         translate_by_list = manager.config.translate_config.translate_by.copy()
-        random.shuffle(translate_by_list)
-        if is_loopback_url(str(getattr(manager.config.translate_config, "llm_url", ""))):
-            translate_by_list.sort(key=lambda engine: engine != Translator.LLM)
         for each in translate_by_list:
             if skip_reason := get_translator_skip_reason(each):
                 LogBuffer.log().write(f"\n 🟡 Translation skipped!({each.capitalize()}) {skip_reason}")

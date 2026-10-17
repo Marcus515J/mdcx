@@ -55,20 +55,14 @@ def str_to_list(v: str | list[Any] | None, sep: Literal[",", "|"] = ",", unique:
 
 
 class TranslateConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     translate_by: list[Translator] = Field(
         default_factory=lambda: [
-            Translator.GOOGLE,
-            Translator.BAIDU,
-            Translator.DEEPL,
-            Translator.DEEPLX,
             Translator.LLM,
         ],
         title="翻译服务",
     )
-    baidu_appid: str = Field(default="", title="百度 APP ID")
-    baidu_key: str = Field(default="", title="百度密钥")
-    deepl_key: str = Field(default="", title="DeepL API Key")
-    deeplx_url: str = Field(default="", title="DeepLX URL")
     llm_url: HttpUrl = Field(default=HttpUrl("https://api.deepseek.com/v1"), title="LLM API Host")
     llm_model: str = Field(default="deepseek-chat", title="模型 ID")
     llm_key: str = Field(default="", title="LLM API Key")
@@ -110,6 +104,16 @@ class TranslateConfig(BaseModel):
     local_model_search_root: str = Field(default="", title="本机模型查找盘符或目录")
     local_model_server_path: str = Field(default="", title="本机 llama-server 程序路径")
     local_model_path: str = Field(default="", title="本机 Hy-MT2 模型路径")
+
+    @field_validator("translate_by", mode="before")
+    @classmethod
+    def normalize_translate_by(cls, value):
+        if isinstance(value, str):
+            value = str_to_list(value, ",")
+        if isinstance(value, list):
+            kept = [Translator.LLM for item in value if item in (Translator.LLM, Translator.LLM.value)]
+            return kept or [Translator.LLM]
+        return [Translator.LLM]
 
     @field_validator("llm_fallback_url", mode="before")
     @classmethod

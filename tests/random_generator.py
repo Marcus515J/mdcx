@@ -67,7 +67,18 @@ def generate_random_pydantic_instance(
                 if field_type is not None:
                     random_value = generate_random_value_for_type(field_type, field_info)
                 attempts += 1
-            if attempts == max_attempts and field_name not in (allow_default or []):
+            origin = get_origin(field_type)
+            args = get_args(field_type)
+            is_single_enum = (
+                isinstance(field_type, type) and issubclass(field_type, Enum) and len(field_type) <= 1
+            ) or (
+                origin is list
+                and args
+                and isinstance(args[0], type)
+                and issubclass(args[0], Enum)
+                and len(args[0]) <= 1
+            )
+            if attempts == max_attempts and field_name not in (allow_default or []) and not is_single_enum:
                 raise ValueError(f"无法为字段 '{field_name}' 生成与默认值不同的随机值")
 
         random_data[field_name] = random_value
