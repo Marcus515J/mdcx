@@ -1,0 +1,54 @@
+# 临时：测试构建，合并前删除
+name: Test Build (Windows, temporary)
+
+on:
+  push:
+    branches:
+      - feat/llm-only-and-resources
+
+permissions:
+  contents: read
+
+env:
+  BUILD_VERSION: v1.1.0
+  QT_QPA_PLATFORM: offscreen
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 1944232e1212ce8d97792cbe0691b1f8319a4413
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+          activate-environment: true
+      - name: Install locked dependencies
+        run: uv sync --locked --dev
+      - name: Validate translation settings and versions on Windows
+        shell: bash
+        run: |
+          uv run --locked pytest -q tests/test_translate_llm.py tests/test_llm_refusal.py tests/test_llm_temperature.py tests/test_llm_settings_ui.py tests/test_version.py
+          uv run --locked python scripts/check_release_version.py "$BUILD_VERSION"
+      - name: Build Windows application
+        shell: bash
+        run: |
+          uv run --locked python scripts/build.py --version "$BUILD_VERSION" --debug
+          uv run --locked python scripts/check_release_version.py "$BUILD_VERSION" --bundle dist/MDCx.exe
+      - name: Name test build
+        shell: bash
+        run: |
+          mkdir -p test-assets
+          cp dist/MDCx.exe "test-assets/MDCx-$BUILD_VERSION-TEST-1944232-windows-x86_64.exe"
+          cd test-assets
+          sha256sum *.exe > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-test-1944232
+          path: test-assets/*
+          if-no-files-found: error
+          retention-days: 14
