@@ -7,14 +7,14 @@
 | 角色 | 做什么 | 写哪里 |
 |---|---|---|
 | Claude（指挥） | 讨论、定方向、写任务单、审核 Codex 汇报 | `handoff/` 下的任务单、交接文档 |
-| Codex（执行） | 读代码、写代码、跑测试、构建 | 代码在自己的功能分支；汇报写 `handoff/reports/` |
+| 执行方（Codex / Antigravity 等） | 读代码、写代码、跑测试、构建 | 代码在自己的功能分支；汇报写 `handoff/reports/` |
 | 用户 | 拍板、本机实测 | 不需要动文件 |
 
 ## 文件约定
 
 - `MDCx任务单_vX.Y.md`：给 Codex 的任务，只由 Claude 写。新任务出新版本号，不覆盖旧版。
 - `MDCx交接文档_vX.Y.md`：项目现状，只由 Claude 写；版本号最大的是现行版本。
-- `reports/MDCx_Codex汇报_vX.Y.md`：Codex 对同编号任务单的汇报，只由 Codex 写。返工时出 `_vX.Y-r2` 这样的后缀，不覆盖。
+- `reports/MDCx_执行汇报_vX.Y.md`：执行方对同编号任务单的汇报，只由执行方写（v1.3 及以前叫 `MDCx_Codex汇报_vX.Y.md`）。返工时出 `_vX.Y-r2` 这样的后缀，不覆盖。
 - 同一轮的任务单、汇报、交接文档共用一个版本号。
 
 ## 流程
