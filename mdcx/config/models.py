@@ -108,11 +108,17 @@ class TranslateConfig(BaseModel):
     @field_validator("translate_by", mode="before")
     @classmethod
     def normalize_translate_by(cls, value):
+        if value is None:
+            return [Translator.LLM]
         if isinstance(value, str):
             value = str_to_list(value, ",")
         if isinstance(value, list):
+            if not value:
+                return []
             kept = [Translator.LLM for item in value if item in (Translator.LLM, Translator.LLM.value)]
-            return kept or [Translator.LLM]
+            if kept:
+                return kept
+            return [Translator.LLM]
         return [Translator.LLM]
 
     @field_validator("llm_fallback_url", mode="before")

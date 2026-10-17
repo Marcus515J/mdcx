@@ -26,7 +26,6 @@ from mdcx.config.enums import (
     SuffixSort,
     Switch,
     TagInclude,
-    Translator,
     Website,
 )
 from mdcx.config.extend import get_movie_path_setting
@@ -301,7 +300,6 @@ def save_config(self: "MyMAinWindow"):
         (self.Ui.checkBox_nfo_website, NfoInclude.WEBSITE),
     )
     # endregion
-    manager.config.translate_config.translate_by = [Translator.LLM]
 
     llm_url_text = self.Ui.lineEdit_llm_url.text()
     if llm_url_text:

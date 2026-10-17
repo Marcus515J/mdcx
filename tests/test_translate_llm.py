@@ -317,3 +317,101 @@ def test_cookie_help_path_and_resource_constants():
     assert "javdb" in html_text
     assert "javbus" in html_text
     assert "fc2ppvdb" in html_text
+
+
+def test_r3_legacy_config_only_google_migrates_to_llm(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    import json
+
+    from mdcx.config.manager import ConfigManager
+
+    cfg_file = tmp_path / "only_google.json"
+    mark_file = tmp_path / "MARK_FILE"
+    monkeypatch.setattr("mdcx.config.manager.MARK_FILE", mark_file)
+
+    raw_data = Config().model_dump(mode="json")
+    raw_data["translate_config"]["translate_by"] = ["google"]
+    cfg_file.write_text(json.dumps(raw_data, ensure_ascii=False, indent=2), encoding="UTF-8")
+    mark_file.write_text(str(cfg_file), encoding="UTF-8")
+
+    mgr = ConfigManager()
+    errors = mgr.load()
+    assert not any("验证失败" in err for err in errors)
+    assert mgr.config.translate_config.translate_by == [Translator.LLM]
+
+    mgr.save()
+    saved_raw = json.loads(cfg_file.read_text(encoding="UTF-8"))
+    assert saved_raw["translate_config"]["translate_by"] == ["llm"]
+
+    reload_errors = mgr.load()
+    assert not any("验证失败" in err for err in reload_errors)
+    assert mgr.config.translate_config.translate_by == [Translator.LLM]
+
+
+def test_r3_config_empty_translate_by_remains_empty_on_load_and_save_reload(tmp_path, monkeypatch: pytest.MonkeyPatch):
+    import json
+
+    from mdcx.config.manager import ConfigManager
+
+    cfg_file = tmp_path / "empty_translate_by.json"
+    mark_file = tmp_path / "MARK_FILE"
+    monkeypatch.setattr("mdcx.config.manager.MARK_FILE", mark_file)
+
+    raw_data = Config().model_dump(mode="json")
+    raw_data["translate_config"]["translate_by"] = []
+    cfg_file.write_text(json.dumps(raw_data, ensure_ascii=False, indent=2), encoding="UTF-8")
+    mark_file.write_text(str(cfg_file), encoding="UTF-8")
+
+    mgr = ConfigManager()
+    errors = mgr.load()
+    assert not any("验证失败" in err for err in errors)
+    assert mgr.config.translate_config.translate_by == []
+
+    mgr.save()
+    saved_raw = json.loads(cfg_file.read_text(encoding="UTF-8"))
+    assert saved_raw["translate_config"]["translate_by"] == []
+
+    reload_errors = mgr.load()
+    assert not any("验证失败" in err for err in reload_errors)
+    assert mgr.config.translate_config.translate_by == []
+
+
+@pytest.mark.asyncio
+async def test_r3_empty_translate_by_does_not_call_translate_engine(monkeypatch: pytest.MonkeyPatch):
+    from unittest.mock import AsyncMock
+
+    from mdcx.core import translate as core_translate
+
+    class _FieldCfg:
+        def __init__(self, language: Language, translate: bool):
+            self.language = language
+            self.translate = translate
+
+    class _TranslateCfg:
+        def __init__(self):
+            self.translate_by = []
+
+    class _Cfg:
+        def __init__(self):
+            self.translate_config = _TranslateCfg()
+
+        def get_field_config(self, _field):
+            return _FieldCfg(Language.ZH_CN, True)
+
+    class _Manager:
+        def __init__(self):
+            self.config = _Cfg()
+
+    mock_translate_with_engine = AsyncMock()
+    monkeypatch.setattr(core_translate, "manager", _Manager())
+    monkeypatch.setattr(core_translate, "translate_with_engine", mock_translate_with_engine)
+
+    data = CrawlersResult.empty()
+    data.title = "乳首快楽"
+    data.outline = "女優の物語"
+
+    await core_translate.translate_title_outline(data, cd_part="", movie_number="ABC-123")
+
+    mock_translate_with_engine.assert_not_called()
+    assert mock_translate_with_engine.call_count == 0
+    assert data.title == "乳首快楽"
+    assert data.outline == "女優の物語"

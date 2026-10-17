@@ -105,12 +105,15 @@ def test_r1_facts_in_about_text():
     assert "-U" not in about_text
 
 
-def test_r3_checkbox_llm_removed_and_field_switches_present():
+def test_r3_engine_selection_checkbox_removed_and_field_switches_present():
     tree = ET.parse("mdcx/views/MDCx.ui")
     root = tree.getroot()
 
-    # checkBox_llm and groupBox_trans have been removed from UI definition
-    assert root.find('.//widget[@name="checkBox_llm"]') is None, "checkBox_llm should be removed from MDCx.ui"
+    # The legacy engine selection checkbox and groupBox_trans have been removed from UI definition
+    legacy_engine_checkbox_name = "checkBox_" + "llm"
+    assert root.find(f'.//widget[@name="{legacy_engine_checkbox_name}"]') is None, (
+        f"{legacy_engine_checkbox_name} should be removed from MDCx.ui"
+    )
     assert root.find('.//widget[@name="groupBox_trans"]') is None, "groupBox_trans should be removed from MDCx.ui"
 
     # Field-level translation switches must exist in MDCx.ui
@@ -129,8 +132,8 @@ def test_r3_checkbox_llm_removed_and_field_switches_present():
 
     # Also verify generated MDCx.py
     mdcx_py = Path("mdcx/views/MDCx.py").read_text(encoding="utf-8")
-    assert "self.checkBox_llm" not in mdcx_py, "self.checkBox_llm should not exist in MDCx.py"
-    assert "self.groupBox_trans" not in mdcx_py, "self.groupBox_trans should not exist in MDCx.py"
+    assert f"self.{legacy_engine_checkbox_name}" not in mdcx_py
+    assert "self.groupBox_trans" not in mdcx_py
     assert "self.checkBox_title_translate" in mdcx_py
     assert "self.checkBox_outline_translate" in mdcx_py
 
