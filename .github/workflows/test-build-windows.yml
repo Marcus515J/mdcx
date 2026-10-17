@@ -1,0 +1,45 @@
+# 临时：测试构建，合并前删除
+name: Test Build (Windows, temporary)
+
+on:
+  push:
+    branches:
+      - fix/rescrape-and-diagnostics
+
+permissions:
+  contents: read
+
+env:
+  BUILD_VERSION: v1.1.0
+  QT_QPA_PLATFORM: offscreen
+  PYTHONIOENCODING: utf-8
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: cf47e446509ab1862f3e6c9abf833cda234bd6a2
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.13'
+          activate-environment: true
+      - name: Install locked dependencies
+        run: uv sync --locked --dev
+      - name: Build Windows application
+        shell: bash
+        run: uv run --locked python scripts/build.py --version "$BUILD_VERSION" --debug
+      - name: Name test build
+        shell: bash
+        run: |
+          mkdir -p test-assets
+          cp dist/MDCx.exe "test-assets/MDCx-$BUILD_VERSION-TEST-cf47e44-windows-x86_64.exe"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-x86_64-test-cf47e44
+          path: test-assets/*
+          if-no-files-found: error
+          retention-days: 14
