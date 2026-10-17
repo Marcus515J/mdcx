@@ -660,6 +660,7 @@ class Config(BaseModel):
     proxy: str = Field(default="http://127.0.0.1:7890", title="代理地址")
     cf_bypass_url: str = Field(default="", title="Cloudflare Bypass地址")
     cf_bypass_proxy: str = Field(default="", title="Cloudflare Bypass代理地址")
+    cf_bypass_timeout: int = Field(default=90, gt=0, title="/html 等待时间（秒）")
     timeout: int = Field(default=10, title="超时")
     retry: int = Field(default=3, title="重试")
     theporndb_api_token: str = Field(default="", title="Theporndb API令牌")

@@ -6,6 +6,7 @@ import re
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from io import BytesIO
@@ -33,6 +34,29 @@ from .network_fingerprint import (
     should_apply_fingerprint,
 )
 from .utils import collapse_inline_script_splits
+
+# Shared by all clients, including clients retained across configuration reloads.
+# A thread lock protects the FIFO so separate event loops also share one slot.
+_html_queue: deque[object] = deque()
+_html_queue_lock = threading.Lock()
+
+
+@contextlib.asynccontextmanager
+async def _html_slot():
+    ticket = object()
+    with _html_queue_lock:
+        _html_queue.append(ticket)
+    try:
+        while True:
+            with _html_queue_lock:
+                ready = _html_queue[0] is ticket
+            if ready:
+                break
+            await asyncio.sleep(0.05)
+        yield
+    finally:
+        with _html_queue_lock:
+            _html_queue.remove(ticket)
 
 
 class AsyncWebLimiters:
@@ -308,6 +332,7 @@ class AsyncWebClient:
         timeout: float,
         cf_bypass_url: str = "",
         cf_bypass_proxy: str | None = None,
+        cf_bypass_timeout: float = 90,
         log_fn: Callable[[str], None] | None = None,
         limiters: AsyncWebLimiters | None = None,
     ):
@@ -344,10 +369,10 @@ class AsyncWebClient:
         self._cf_last_bypass_attempt_at: dict[str, float] = {}
         self._cf_host_challenge_hits: dict[str, int] = {}
         self._cf_bypass_min_interval = 2.0
-        self._cf_bypass_timeout = 45.0
+        self._cf_bypass_timeout = float(cf_bypass_timeout)
         self._cf_bypass_retries = 2
         self._cf_mirror_max_redirects = 8
-        self._cf_request_bypass_rounds = 2
+        self._cf_request_bypass_rounds = 1
         self._cf_retry_max_concurrent_per_host = 4
         self._cf_retry_after_bypass_base_delay = 1.2
         self._cf_retry_after_bypass_jitter = 1.3
@@ -984,7 +1009,8 @@ class AsyncWebClient:
                     headers=mirror_headers,
                     data=current_data,
                     json=current_json_data,
-                    timeout=timeout or self._cf_bypass_timeout,
+                    # Preserve the pre-existing mirror timeout; only /html changes.
+                    timeout=timeout or 45.0,
                     stream=False,
                     allow_redirects=False,
                 )
@@ -1064,15 +1090,26 @@ class AsyncWebClient:
             params["bypassCookieCache"] = "true"
             self._log_cf("♻️ /html bypass 将强制刷新 cookies")
 
-        response, error = await self.request(
-            "GET",
-            f"{self.cf_bypass_url}/html",
-            use_proxy=False,
-            allow_redirects=True,
-            timeout=self._cf_bypass_timeout,
-            params=params,
-            enable_cf_bypass=False,
-        )
+        host = urlsplit(target_url).hostname or ""
+        queued_at = time.monotonic()
+        async with _html_slot():
+            self._log_cf(f"/html 开始，在途=1，排队={time.monotonic() - queued_at:.2f}s", host)
+            try:
+                async with asyncio.timeout(self._cf_bypass_timeout):
+                    response, error = await self.request(
+                        "GET",
+                        f"{self.cf_bypass_url}/html",
+                        use_proxy=False,
+                        allow_redirects=True,
+                        timeout=self._cf_bypass_timeout,
+                        params=params,
+                        enable_cf_bypass=False,
+                        retry_count=1,
+                    )
+            except TimeoutError:
+                response, error = None, f"/html 等待超时 ({self._cf_bypass_timeout:g}s)"
+            finally:
+                self._log_cf("/html 结束，在途=0", host)
 
         if response is None:
             return None, error
@@ -1192,6 +1229,8 @@ class AsyncWebClient:
                             self._log_cf(f"🌐 /html 最终地址: {final_url}", host)
                         return bypass_response, ""
                     error = f"mirror: {mirror_error}; html: {html_error}"
+                    # One browser launch only: no retry or forced-cookie second round.
+                    can_retry = False
                 else:
                     error = f"mirror 失败且 {str(method).upper()} 不支持 /html 兜底: {mirror_error}"
                     if mirror_status is not None and not self._is_retryable_status_code(mirror_status):
