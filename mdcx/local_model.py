@@ -342,7 +342,7 @@ class LocalModelService:
             return "unavailable", "本软件进程仍在运行，接口暂不可用；可停止后重试或查看日志。"
         self.reused = False
         self.model_id = ""
-        return "stopped", "未启动；DeepSeek 云端仍为主接口。"
+        return "stopped", "未启动；云端主模型仍为主接口。"
 
     def close(self):
         self.cancel.set()

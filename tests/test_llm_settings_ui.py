@@ -71,10 +71,32 @@ def window(app, monkeypatch, tmp_path):
     window.close()
 
 
+def test_fallback_temperature_ui_load_save_reload(window, tmp_path):
+    window, _ = window
+    ui = window.Ui
+    primary, fallback = ui.doubleSpinBox_llm_temperature, ui.doubleSpinBox_llm_fallback_temperature
+    assert (fallback.minimum(), fallback.maximum(), fallback.singleStep(), fallback.decimals()) == (
+        primary.minimum(),
+        primary.maximum(),
+        primary.singleStep(),
+        primary.decimals(),
+    )
+    assert fallback.value() == 0.9
+    fallback.setValue(1.27)
+    ui.pushButton_save_config.click()
+    saved = Config.model_validate_json((tmp_path / "config.json").read_text(encoding="utf-8"))
+    assert saved.translate_config.llm_temperature == 0.9
+    assert saved.translate_config.llm_fallback_temperature == 1.27
+    fallback.setValue(0.2)
+    settings.load_llm_settings(window)
+    assert fallback.value() == 1.27
+
+
 def test_existing_settings_roundtrip_and_local_preset(window, tmp_path):
     window, _ = window
     ui = window.Ui
-    assert ui.lineEdit_llm_fallback_key.echoMode() == QLineEdit.EchoMode.Password
+    assert ui.lineEdit_llm_fallback_key.echoMode() == QLineEdit.EchoMode.Normal
+    assert ui.lineEdit_llm_key.echoMode() == QLineEdit.EchoMode.Normal
     ui.pushButton_save_config.click()
     saved = Config.model_validate_json((tmp_path / "config.json").read_text(encoding="utf-8"))
     assert saved.translate_config.llm_model == "existing-model"

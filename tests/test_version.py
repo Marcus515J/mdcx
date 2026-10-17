@@ -128,7 +128,10 @@ def test_window_reports_semantic_version_and_update_link(monkeypatch, latest, ne
     window_module.MyMAinWindow._show_version_thread(window)
     assert "当前版本: v1.1.0" in messages[0]
     assert ("有新版本" in window.new_version) is newer
-    assert ("下载新版本" in links[0]) is newer
+    assert any("下载新版本" in link for link in links) is newer
+    assert all("问题反馈" not in text and "GitHub Issues" not in text for text in messages + links)
+    if not newer:
+        assert not links
     if newer:
         assert "v1.10.0" in messages[0] and cursors
     elif latest:

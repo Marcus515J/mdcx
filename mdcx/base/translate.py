@@ -212,7 +212,10 @@ async def _llm_translate(text: str, prompt_template: str, target_language: str =
                 rate=(max(tc.llm_max_req_sec, 1), max(1, 1 / tc.llm_max_req_sec)),
             )
             try:
-                translated = await fallback.ask(model=tc.llm_fallback_model, **{**request, "max_try": 1})
+                translated = await fallback.ask(
+                    model=tc.llm_fallback_model,
+                    **{**request, "max_try": 1, "temperature": tc.llm_fallback_temperature},
+                )
                 if translated and translated.strip():
                     translated = _normalize_translated_linebreaks(translated)
                     if translated.strip() and not _is_llm_refusal(translated, tc.llm_refusal_prefixes):
