@@ -5460,40 +5460,10 @@ class Ui_MDCx(object):
         self.scrollArea_11.setWidgetResizable(False)
         self.scrollArea_11.setObjectName("scrollArea_11")
         self.scrollAreaWidgetContents_fanyi = QtWidgets.QWidget()
-        self.scrollAreaWidgetContents_fanyi.setGeometry(QtCore.QRect(0, 0, 760, 2630))
+        self.scrollAreaWidgetContents_fanyi.setGeometry(QtCore.QRect(0, 0, 760, 2400))
         self.scrollAreaWidgetContents_fanyi.setObjectName("scrollAreaWidgetContents_fanyi")
-        self.groupBox_trans = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_trans.setGeometry(QtCore.QRect(30, 20, 701, 80))
-        self.groupBox_trans.setMinimumSize(QtCore.QSize(200, 0))
-        self.groupBox_trans.setMaximumSize(QtCore.QSize(739, 16777215))
-        self.groupBox_trans.setObjectName("groupBox_trans")
-        self.layoutWidget_2 = QtWidgets.QWidget(parent=self.groupBox_trans)
-        self.layoutWidget_2.setGeometry(QtCore.QRect(20, 30, 661, 40))
-        self.layoutWidget_2.setObjectName("layoutWidget_2")
-        self.gridLayout_32 = QtWidgets.QGridLayout(self.layoutWidget_2)
-        self.gridLayout_32.setContentsMargins(0, 0, 0, 0)
-        self.gridLayout_32.setObjectName("gridLayout_32")
-        self.label_81 = QtWidgets.QLabel(parent=self.layoutWidget_2)
-        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
-        sizePolicy.setHorizontalStretch(0)
-        sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.label_81.sizePolicy().hasHeightForWidth())
-        self.label_81.setSizePolicy(sizePolicy)
-        self.label_81.setMinimumSize(QtCore.QSize(130, 30))
-        self.label_81.setLayoutDirection(QtCore.Qt.LayoutDirection.LeftToRight)
-        self.label_81.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight|QtCore.Qt.AlignmentFlag.AlignTrailing|QtCore.Qt.AlignmentFlag.AlignVCenter)
-        self.label_81.setObjectName("label_81")
-        self.gridLayout_32.addWidget(self.label_81, 0, 0, 1, 1)
-        self.horizontalLayout_20 = QtWidgets.QHBoxLayout()
-        self.horizontalLayout_20.setObjectName("horizontalLayout_20")
-        self.checkBox_llm = QtWidgets.QCheckBox(parent=self.layoutWidget_2)
-        self.checkBox_llm.setMinimumSize(QtCore.QSize(93, 30))
-        self.checkBox_llm.setChecked(True)
-        self.checkBox_llm.setObjectName("checkBox_llm")
-        self.horizontalLayout_20.addWidget(self.checkBox_llm)
-        self.gridLayout_32.addLayout(self.horizontalLayout_20, 0, 1, 1, 1)
         self.groupBox_llm = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_llm.setGeometry(QtCore.QRect(30, 250, 701, 601))
+        self.groupBox_llm.setGeometry(QtCore.QRect(30, 20, 701, 601))
         self.groupBox_llm.setObjectName("groupBox_llm")
         self.gridLayoutWidget_llm = QtWidgets.QWidget(parent=self.groupBox_llm)
         self.gridLayoutWidget_llm.setGeometry(QtCore.QRect(20, 30, 661, 561))
@@ -5616,7 +5586,7 @@ class Ui_MDCx(object):
         self.doubleSpinBox_llm_temperature.setObjectName("doubleSpinBox_llm_temperature")
         self.gridLayout_llm.addWidget(self.doubleSpinBox_llm_temperature, 12, 1, 1, 1)
         self.groupBox_82 = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_82.setGeometry(QtCore.QRect(30, 871, 701, 130))
+        self.groupBox_82.setGeometry(QtCore.QRect(30, 641, 701, 130))
         self.groupBox_82.setMinimumSize(QtCore.QSize(200, 0))
         self.groupBox_82.setMaximumSize(QtCore.QSize(739, 16777215))
         self.groupBox_82.setObjectName("groupBox_82")
@@ -5678,7 +5648,7 @@ class Ui_MDCx(object):
         self.label_244.setObjectName("label_244")
         self.gridLayout_45.addWidget(self.label_244, 2, 0, 1, 1)
         self.groupBox_83 = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_83.setGeometry(QtCore.QRect(30, 1021, 701, 220))
+        self.groupBox_83.setGeometry(QtCore.QRect(30, 791, 701, 220))
         self.groupBox_83.setMinimumSize(QtCore.QSize(200, 0))
         self.groupBox_83.setMaximumSize(QtCore.QSize(739, 16777215))
         self.groupBox_83.setObjectName("groupBox_83")
@@ -5775,7 +5745,7 @@ class Ui_MDCx(object):
         self.label_328.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight|QtCore.Qt.AlignmentFlag.AlignTrailing|QtCore.Qt.AlignmentFlag.AlignVCenter)
         self.label_328.setObjectName("label_328")
         self.groupBox_84 = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_84.setGeometry(QtCore.QRect(30, 1261, 701, 420))
+        self.groupBox_84.setGeometry(QtCore.QRect(30, 1031, 701, 420))
         self.groupBox_84.setMinimumSize(QtCore.QSize(200, 0))
         self.groupBox_84.setMaximumSize(QtCore.QSize(739, 16777215))
         self.groupBox_84.setObjectName("groupBox_84")
@@ -5843,7 +5813,7 @@ class Ui_MDCx(object):
         self.label_248.setObjectName("label_248")
         self.gridLayout_50.addWidget(self.label_248, 0, 0, 1, 1)
         self.groupBox_85 = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_85.setGeometry(QtCore.QRect(30, 1701, 701, 151))
+        self.groupBox_85.setGeometry(QtCore.QRect(30, 1471, 701, 151))
         self.groupBox_85.setMinimumSize(QtCore.QSize(200, 0))
         self.groupBox_85.setMaximumSize(QtCore.QSize(739, 16777215))
         self.groupBox_85.setObjectName("groupBox_85")
@@ -5903,7 +5873,7 @@ class Ui_MDCx(object):
         self.label_253.setObjectName("label_253")
         self.gridLayout_51.addWidget(self.label_253, 1, 0, 1, 1)
         self.groupBox_86 = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_86.setGeometry(QtCore.QRect(30, 1872, 701, 151))
+        self.groupBox_86.setGeometry(QtCore.QRect(30, 1642, 701, 151))
         self.groupBox_86.setMinimumSize(QtCore.QSize(200, 0))
         self.groupBox_86.setMaximumSize(QtCore.QSize(739, 16777215))
         self.groupBox_86.setObjectName("groupBox_86")
@@ -5963,7 +5933,7 @@ class Ui_MDCx(object):
         self.checkBox_series_translate.setObjectName("checkBox_series_translate")
         self.gridLayout_53.addWidget(self.checkBox_series_translate, 1, 1, 1, 1)
         self.groupBox_87 = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_87.setGeometry(QtCore.QRect(30, 2043, 701, 151))
+        self.groupBox_87.setGeometry(QtCore.QRect(30, 1813, 701, 151))
         self.groupBox_87.setMinimumSize(QtCore.QSize(200, 0))
         self.groupBox_87.setMaximumSize(QtCore.QSize(739, 16777215))
         self.groupBox_87.setObjectName("groupBox_87")
@@ -6023,7 +5993,7 @@ class Ui_MDCx(object):
         self.checkBox_studio_translate.setObjectName("checkBox_studio_translate")
         self.gridLayout_55.addWidget(self.checkBox_studio_translate, 1, 1, 1, 1)
         self.groupBox_88 = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_88.setGeometry(QtCore.QRect(30, 2214, 701, 151))
+        self.groupBox_88.setGeometry(QtCore.QRect(30, 1984, 701, 151))
         self.groupBox_88.setMinimumSize(QtCore.QSize(200, 0))
         self.groupBox_88.setMaximumSize(QtCore.QSize(739, 16777215))
         self.groupBox_88.setObjectName("groupBox_88")
@@ -6083,7 +6053,7 @@ class Ui_MDCx(object):
         self.checkBox_publisher_translate.setObjectName("checkBox_publisher_translate")
         self.gridLayout_57.addWidget(self.checkBox_publisher_translate, 1, 1, 1, 1)
         self.groupBox_89 = QtWidgets.QGroupBox(parent=self.scrollAreaWidgetContents_fanyi)
-        self.groupBox_89.setGeometry(QtCore.QRect(30, 2385, 701, 151))
+        self.groupBox_89.setGeometry(QtCore.QRect(30, 2155, 701, 151))
         self.groupBox_89.setMinimumSize(QtCore.QSize(200, 0))
         self.groupBox_89.setMaximumSize(QtCore.QSize(739, 16777215))
         self.groupBox_89.setObjectName("groupBox_89")
@@ -10713,9 +10683,6 @@ class Ui_MDCx(object):
         self.label_351.setText(_translate("MDCx", "Emby 分集封面需要每个分集都提供图片，图片命名规则需要选择「视频文件名-poster.jpg」"))
         self.label_354.setText(_translate("MDCx", "2，分集封面显示："))
         self.tabWidget.setTabText(self.tabWidget.indexOf(self.tab_3), _translate("MDCx", " 命名 "))
-        self.groupBox_trans.setTitle(_translate("MDCx", "翻译引擎"))
-        self.label_81.setText(_translate("MDCx", "翻译引擎："))
-        self.checkBox_llm.setText(_translate("MDCx", "LLM"))
         self.groupBox_llm.setTitle(_translate("MDCx", "LLM 翻译"))
         self.label_llm_url.setText(_translate("MDCx", "API URL:"))
         self.label_llm_url_desc.setText(_translate("MDCx", "示例: https://api.openai.com/v1"))
@@ -11222,12 +11189,12 @@ class Ui_MDCx(object):
 "\n"
 "<h3>一、适用版本与平台、首次设置与下载入口</h3>\n"
 "<p><b>适用版本与平台：</b>当前版本 <code>v1.1.0</code>，提供 Windows（<code>x86_64</code>）与 macOS（<code>arm64</code>）桌面版。</p>\n"
-"<p><b>当前成品下载与更新入口：</b><a href=\"https://github.com/Marcus515J/mdcx/releases\">https://github.com/Marcus515J/mdcx/releases</a>（点击主界面左下角版本号亦可检查更新）。</p>\n"
+"<p><b>当前成品下载与更新入口：</b><a href=\"https://github.com/Marcus515J/mdcx/releases\">https://github.com/Marcus515J/mdcx/releases</a></p>\n"
 "<p><b>首次设置：</b>首次启动会在数据目录自动生成默认 JSON 配置文件；可在「设置」页底部切换、新建或重置配置文件。若指向旧版 <code>.ini</code> 配置，程序会自动转换并保存为 <code>.v2.json</code>，同时保留原 <code>.ini</code> 文件不删除。</p>\n"
 "\n"
 "<h3>二、快速开始</h3>\n"
-"<p>1. <b>选择目录：</b>进入「设置 → 刮削目录」，设置「待刮削目录」以及自定义「成功输出目录」「失败输出目录」。</p>\n"
-"<p>2. <b>保存配置：</b>修改任意设置项后，点击界面右下角 <b>「保存配置」</b>（或勾选自动保存配置）。</p>\n"
+"<p>1. <b>选择目录：</b>进入「设置」的「刮削目录」标签页，设置「待刮削目录」以及自定义「成功输出目录」「失败输出目录」。</p>\n"
+"<p>2. <b>保存设置：</b>修改任意设置项后，点击界面右下角 <b>「保存」</b>。</p>\n"
 "<p>3. <b>选择模式并开始：</b>确认刮削模式后，返回「主界面」点击 <b>「开始」</b>，可在左侧结果树查看每部影片的刮削状态与元数据，或在「日志」页查看实时执行进度与请求详情。</p>\n"
 "\n"
 "<h3>三、番号与文件名识别规则</h3>\n"
@@ -11240,9 +11207,9 @@ class Ui_MDCx(object):
 "</ul>\n"
 "<p><b>内嵌字幕与多集分集后缀：</b></p>\n"
 "<ul>\n"
-"  <li><b>字幕标记：</b>默认支持 <code>-C</code>、<code>_C</code>、<code>-UC</code>、<code>-U</code> 等后缀（可在「设置 → 字幕」自定义文字触发词）。</li>\n"
-"  <li><b>分集命名：</b><b>支持</b> <code>-CD1</code>、<code>-PART1</code>、<code>-HD1</code> 以及文件名末尾的 <code>-1</code>、<code>_1</code>、<code>-A</code>、<code>-B</code> 等分集后缀。</li>\n"
-"  <li><b>顺序与 <code>-C</code> 冲突开关：</b>分集与字幕并存时建议分集在前、字幕紧靠扩展名（如 <code>ABP-123-CD1-C.mp4</code>）。若启用字母分集，可在「设置 → 分集」中设置末尾 <code>-C</code> 优先识别为中文字幕或第 3 集。</li>\n"
+"  <li><b>字幕标记：</b>默认支持 <code>-C</code>、<code>_C</code> 等后缀（可在「设置」的「字幕」标签页自定义中文字幕规则）。</li>\n"
+"  <li><b>分集命名：</b>支持 <code>-CD1</code>、<code>-PART1</code>、<code>-HD1</code> 以及文件名末尾的 <code>-1</code>、<code>_1</code>、<code>-A</code>、<code>-B</code> 等分集后缀。</li>\n"
+"  <li><b>顺序与 <code>-C</code> 冲突规则：</b>分集与字幕并存时建议分集在前、字幕紧靠扩展名（如 <code>ABP-123-CD1-C.mp4</code>）。若视频包含字母分集，可在「设置」-「命名」的「分集命名规则」中配置是否将字母结尾（如 <code>-C.mp4</code>）识别为分集。</li>\n"
 "  <li><b>外挂字幕：</b>与视频同名（或带 <code>.chs</code> 等语言后缀）的 <code>.srt</code>、<code>.ass</code>、<code>.ssa</code>、<code>.sub</code>、<code>.smi</code> 字幕会随视频一同移动并重命名。</li>\n"
 "</ul>\n"
 "\n"
@@ -11256,7 +11223,7 @@ class Ui_MDCx(object):
 "</ul>\n"
 "\n"
 "<h3>五、命名模板</h3>\n"
-"<p>在「设置 → 命名」中可分别配置<b>目录命名</b>、<b>媒体库（NFO）标题</b>与<b>本地文件名</b>：</p>\n"
+"<p>在「设置」的「命名」标签页中可分别配置<b>目录命名</b>、<b>媒体库（NFO）标题</b>与<b>本地文件名</b>：</p>\n"
 "<ul>\n"
 "  <li>支持直接组合字段名（如 <code>actor/number [title]</code>）或使用 <b>Jinja2 模板语法</b>。</li>\n"
 "  <li><b>常用字段：</b><code>title</code>（标题）、<code>originaltitle</code>（原标题）、<code>actor</code>（演员）、<code>all_actor</code>（全体演员）、<code>first_actor</code>（首位演员）、<code>studio</code>（片商）、<code>publisher</code>（发行商）、<code>director</code>（导演）、<code>series</code>（系列）、<code>release</code>（发行日）、<code>year</code>（年份）、<code>number</code>（番号）、<code>letters</code>（番号前缀）、<code>runtime</code>（时长）、<code>definition</code>（清晰度）、<code>mosaic</code>（有码/无码）、<code>website</code>（来源网站）等。</li>\n"
@@ -11265,51 +11232,51 @@ class Ui_MDCx(object):
 "\n"
 "<h3>六、来源网站与网络设置</h3>\n"
 "<ul>\n"
-"  <li><b>站点与字段优先级：</b>支持站点由程序动态注册，可在「设置 → 刮削网站」中为有码、无码、素人、欧美及各具体字段（标题、简介、演员、封面等）单独调整网站优先级，或使用主界面右键菜单「指定番号/网址重新刮削」。请合理控制并发与频率，遵守各站点访问限制。</li>\n"
-"  <li><b>Cookie 与 Token：</b>在「设置 → 网络 → Cookie设置」中可填写并点击「检查cookie」测试 <code>javdb</code>、<code>javbus</code>、<code>fc2ppvdb</code> 的登录 Cookie（点击界面上的「如何获取 Cookie？点击查看教程」可打开内置本地教程）；支持配置 <code>ThePornDB</code> API Token 与自定义站点镜像域名。</li>\n"
-"  <li><b>代理与 CF Bypass：</b>在「设置 → 网络」中选择 HTTP 或 SOCKS5 代理并填写地址（如 <code>127.0.0.1:7890</code>）、超时时间（秒）与重试次数，无需手改配置文件。可配置 FlareSolverr / CF Bypass 服务地址以应对站点 Cloudflare 验证（验证耗时受网络与挑战复杂度影响）。</li>\n"
+"  <li><b>站点与字段优先级：</b>支持站点由程序动态注册，可在「设置」的「刮削网站」标签页中为有码、无码、素人、欧美及各具体字段（标题、简介、演员、封面等）单独调整网站优先级，或在主界面列表右键选择「重新刮削」或「输入网址重新刮削」。请合理控制并发与频率，遵守各站点访问限制。</li>\n"
+"  <li><b>Cookie 与 Token：</b>在「设置」-「网络」的「Cookie设置」中可填写并点击「检查cookie」测试 <code>javdb</code>、<code>javbus</code>、<code>fc2ppvdb</code> 的登录 Cookie（点击界面上的「如何获取 Cookie？点击查看教程」可打开内置本地教程）；支持配置 <code>ThePornDB</code> API Token 与自定义站点镜像域名。</li>\n"
+"  <li><b>代理与 CF Bypass：</b>在「设置」的「网络」标签页中选择 HTTP 或 SOCKS5 代理并填写地址（如 <code>127.0.0.1:7890</code>）、超时时间（秒）与重试次数，无需手改配置文件。可配置 CF Bypass 服务地址（CloudflareBypassForScraping）以应对站点 Cloudflare 验证（验证耗时受网络与挑战复杂度影响）。</li>\n"
 "</ul>\n"
 "\n"
 "<h3>七、文件清理与排除规则</h3>\n"
 "<ul>\n"
-"  <li><b>目录与字符过滤：</b>支持设置「排除目录」（跳过如 <code>failed</code>、<code>JAV_output</code> 等子目录）、「多余字符串」（提取番号前先剔除的干扰词）与「排除字符」（创建目录时过滤的特殊字符）。</li>\n"
-"  <li><b>扫描前垃圾清理：</b>在「设置 → 刮削目录 → 文件清理（扫描前）」中，可按<b>扩展名</b>、<b>完整文件名</b>、<b>文件名包含词</b>匹配广告或垃圾文件，并配置排除白名单。</li>\n"
+"  <li><b>目录与字符过滤：</b>支持设置「排除目录」（跳过如 <code>failed</code>、<code>JAV_output</code> 等子目录）与「过滤文件名多余字符」（提取番号前先剔除的干扰词）。</li>\n"
+"  <li><b>扫描前垃圾清理：</b>在「设置」-「刮削目录」的「文件清理设置」中，可按<b>扩展名</b>、<b>完整文件名</b>、<b>文件名包含词</b>匹配广告或垃圾文件，并配置排除白名单。</li>\n"
 "  <li><b>三种处置模式与文件保护：</b>提供<b>演练（仅日志）</b>、<b>移到待删目录</b>（默认移入待刮削目录下的 <code>_pending_delete</code>，与刮削失败目录互不混用）、<b>永久删除</b>（需二次确认）。清理过程自动保护主视频、关联字幕、NFO、海报剧照、配置/数据目录、软链接与 0 字节占位文件。</li>\n"
 "</ul>\n"
 "\n"
 "<h3>八、云端翻译与本机备用翻译</h3>\n"
 "<ul>\n"
-"  <li><b>翻译引擎：</b>「设置 → 翻译」统一使用<b>大模型（LLM）</b>翻译标题与简介（以及演员维基补全中的英文标签与简介）；演员名、标签、系列、片商、发行商、导演等字段则通过内置 XML 映射表（<code>mapping_actor.xml</code>、<code>mapping_info.xml</code>）与繁简转换处理。</li>\n"
-"  <li><b>主接口与备用接口：</b>主接口支持任意兼容 OpenAI Chat Completions 的云端或本地服务（可配置 URL、模型名、明文 API Key、超时、重试次数与每秒请求数）；启用「使用备用模型」后，可在主接口触发安全拒绝词、空响应、超时或连接错误时自动切换至备用接口（本机地址如 <code>localhost</code> / <code>127.0.0.1</code> 无需填写 API Key）。</li>\n"
-"  <li><b>独立主备温度与共享 Prompt：</b>主接口温度（默认 <code>0.2</code>）与备用接口温度（默认 <code>1.0</code>）各自独立保存与发送；标题和简介的翻译提示词（支持 <code>{content}</code> 与 <code>{lang}</code> 占位符）在主备接口间共享。</li>\n"
+"  <li><b>翻译引擎与开关：</b>在「设置」的「翻译」标签页，大模型（LLM）用于翻译标题与简介。要启用或关闭特定内容的翻译，直接在下方各字段设置中勾选或取消即可（例如在「标题」中勾选或取消「使用翻译引擎翻译标题」，在「简介」中勾选或取消「使用翻译引擎翻译简介」；演员名、标签、系列、片商、发行商、导演等字段则由各字段的映射表开关独立控制）。</li>\n"
+"  <li><b>主接口与备用接口：</b>主接口支持任意兼容 OpenAI Chat Completions 的云端或本地服务（可配置 URL、模型名、明文 API Key、超时、重试次数与每秒请求数）；备用接口地址填写后即可启用（留空即停用），可在主接口触发安全拒绝词、空响应、超时或连接错误时自动切换至备用接口（本机地址如 <code>localhost</code> / <code>127.0.0.1</code> 无需填写 API Key）。</li>\n"
+"  <li><b>独立主备温度与共享 Prompt：</b>主接口温度与备用接口温度（默认均为 <code>0.9</code>）各自独立保存与发送；标题和简介的翻译提示词（支持 <code>{content}</code> 与 <code>{lang}</code> 占位符）在主备接口间共享。</li>\n"
 "  <li><b>失败保留原文：</b>若 LLM 未配置或主备均调用失败，程序会记录跳过/失败原因并保留日文或英文原文，不会直接用繁简转换将日文汉字伪装成中文译文。</li>\n"
 "</ul>\n"
 "\n"
 "<h3>九、本机模型管理</h3>\n"
 "<ul>\n"
-"  <li><b>查找、验证与选择：</b>在「设置 → 翻译」本机模型管理区填写 <code>llama-server</code> 路径与 GGUF 模型路径（或模型搜索根目录），可点击「查找模型」扫描候选 GGUF 文件（优先匹配 <code>HY-MT2</code>，兼顾 <code>Index-Translate</code> 等模型），或点击「验证配置」校验已保存路径。</li>\n"
-"  <li><b>手动启停与模型 ID：</b>点击「启动本机模型」或「停止本机模型」手动控制服务；服务就绪后会将实际加载的模型 ID 自动填入备用模型框。</li>\n"
+"  <li><b>查找、验证与选择：</b>在「设置」的「翻译」标签页本机模型管理区选择查找盘符或目录后，可点击「查找 / 验证路径」（或「重新查找」）扫描候选 GGUF 文件（优先匹配 <code>HY-MT2</code>，兼顾 <code>Index-Translate</code> 等模型），并通过「将所选本机模型设为备用」将配置填入备用接口。</li>\n"
+"  <li><b>手动启停与日志：</b>可点击「启动备用模型」启动服务，点击「停止」停止服务，或点击「打开日志」查看模型运行日志；服务就绪后会将实际加载的模型 ID 自动填入备用模型框。</li>\n"
 "  <li><b>外部服务复用与平台边界：</b>若目标端口已有就绪的同款外部模型服务，程序会直接复用且退出时不关闭外部进程；若由本程序拉起，则在确认退出主程序时自动清理子进程（最小化到系统托盘不会中断服务）。Windows 下请选择 <code>llama-server.exe</code>，macOS 下请选择无扩展名的 <code>llama-server</code> 可执行文件。</li>\n"
 "</ul>\n"
 "\n"
 "<h3>十、字幕包、水印包、封面与其他资源下载</h3>\n"
 "<ul>\n"
-"  <li><b>资源下载入口：</b>软件内的「演员头像包」「字幕包」「水印包」「演员资料库」四个下载入口已统一指向私有资源仓库 <code>Marcus515J/mdcx-resources</code> 对应的 Release 标签页（<code>actor-photos</code>、<code>subtitles</code>、<code>watermarks</code>、<code>actor-info-db</code>），点击后需使用有权限的 GitHub 账号登录下载。</li>\n"
+"  <li><b>资源下载入口：</b>软件内的「点击下载头像包」「点击下载字幕包」「点击下载水印图片包」「点击下载演员数据库」四个下载入口已统一指向私有资源仓库 <code>Marcus515J/mdcx-resources</code> 对应的 Release 标签页（<code>actor-photos</code>、<code>subtitles</code>、<code>watermarks</code>、<code>actor-info-db</code>），点击后需使用有权限的 GitHub 账号登录下载。</li>\n"
 "  <li><b>封面与角标水印：</b>支持为海报（poster）、缩略图（thumb）、背景图（fanart）自动叠加中文字幕、4K/8K、无码/破解/流出等角标；自定义水印图标位于数据目录 <code>userdata/watermark/</code>。</li>\n"
 "  <li><b>媒体库提示：</b>生成的 NFO 原生适配 Emby、Jellyfin、Kodi；若使用 Plex，需自行在 Plex 端安装第三方插件 <code>XBMCnfoMoviesImporter</code>。</li>\n"
 "</ul>\n"
 "\n"
 "<h3>十一、演员资料：头像、SQLite 数据库与 Emby/Jellyfin 补全</h3>\n"
 "<ul>\n"
-"  <li><b>头像与资料补全：</b>在「设置 → 演员」与「工具」页配置 Emby 或 Jellyfin 地址及 API Key 后，可通过 Gfriends 在线仓库或本地头像包批量补全演员头像，并自动写入演员简介、出生日期、三围与外文名翻译。</li>\n"
-"  <li><b>SQLite 演员数据库：</b>从资源仓库 <code>actor-info-db</code> 下载 <code>Actress-*.db</code> 后，在「设置 → 演员」中选择该 <code>.db</code> 文件并开启「使用演员数据库」，即可在 Windows 与 macOS 上离线补充演员详细资料。</li>\n"
+"  <li><b>头像与资料补全：</b>在「设置」的「演员」标签页与「工具」页配置 Emby 或 Jellyfin 地址及 API Key 后，可通过 Gfriends 在线仓库或本地头像包批量补全演员头像，并自动写入演员简介、出生日期、三围与外文名翻译。</li>\n"
+"  <li><b>SQLite 演员数据库：</b>从资源仓库 <code>actor-info-db</code> 下载 <code>Actress-*.db</code> 后，在「设置」的「演员」标签页选择该 <code>.db</code> 文件并勾选「使用数据库补全演员信息」，即可在 Windows 与 macOS 上离线补充演员详细资料。</li>\n"
 "</ul>\n"
 "\n"
 "<h3>十二、日志与恢复</h3>\n"
 "<ul>\n"
 "  <li><b>主程序日志路径：</b>开启「保存日志」后，每次运行会在当前配置文件所在目录下的 <code>Log/</code> 文件夹生成按时间命名的 <code>.txt</code> 日志文件，可随时清理。</li>\n"
 "  <li><b>本机模型日志路径：</b>默认写入配置文件同级 <code>logs/hymt2/&lt;本次启动子目录&gt;/llama-server.log</code>（若目录不可写则自动降级至系统应用数据目录），可在翻译设置页一键打开。</li>\n"
-"  <li><b>配置兼容与异常恢复：</b>旧版本配置中的已移除字段在加载时会自动清理并迁移为当前格式，不会触发重置；若因手动修改导致 JSON 语法损坏，原文件会备份为同目录下的 <code>*_failed.json</code>。</li>\n"
+"  <li><b>配置兼容与异常恢复：</b>旧版本配置中的已移除字段在加载时会自动清理并迁移为当前格式，不会触发重置；若因手动修改导致配置读取或校验出错，程序会自动切换为使用数据目录下的 <code>_failed.json</code>，避免破坏原有配置文件。</li>\n"
 "</ul>\n"
 "\n"
 "<h3>十三、来源与致谢、许可证</h3>\n"

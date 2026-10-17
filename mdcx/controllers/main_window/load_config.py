@@ -22,7 +22,6 @@ from mdcx.config.enums import (
     ReadMode,
     Switch,
     TagInclude,
-    Translator,
     Website,
 )
 from mdcx.config.extend import get_movie_path_setting
@@ -405,12 +404,6 @@ def load_config(self: "MyMAinWindow"):
             (self.Ui.checkBox_nfo_website, NfoInclude.WEBSITE),
         )
         # endregion
-
-        # 翻译引擎
-        set_checkboxes(
-            manager.config.translate_config.translate_by,
-            (self.Ui.checkBox_llm, Translator.LLM),
-        )
 
         # llm config
         self.Ui.lineEdit_llm_url.setText(str(manager.config.translate_config.llm_url))

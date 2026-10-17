@@ -301,9 +301,7 @@ def save_config(self: "MyMAinWindow"):
         (self.Ui.checkBox_nfo_website, NfoInclude.WEBSITE),
     )
     # endregion
-    manager.config.translate_config.translate_by = get_checkboxes(
-        (self.Ui.checkBox_llm, Translator.LLM),
-    ) or [Translator.LLM]
+    manager.config.translate_config.translate_by = [Translator.LLM]
 
     llm_url_text = self.Ui.lineEdit_llm_url.text()
     if llm_url_text:
