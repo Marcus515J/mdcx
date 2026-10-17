@@ -201,13 +201,10 @@ async def pic_some_deal(number: str, thumb_final_path: Path, fanart_final_path: 
 
 async def save_success_list(old_path: Path | None = None, new_path: Path | None = None) -> None:
     if old_path and NoEscape.RECORD_SUCCESS_FILE in manager.config.no_escape:
-        # 软硬链接时，保存原路径；否则保存新路径
-        if manager.config.soft_link != 0:
-            Flags.success_list.add(old_path)
-        elif new_path:
+        Flags.success_list.add(old_path)
+        if new_path:
             Flags.success_list.add(new_path)
             if await aiofiles.os.path.islink(new_path):
-                Flags.success_list.add(old_path)
                 Flags.success_list.add(new_path.resolve())
     if get_used_time(Flags.success_save_time) > 5 or not old_path:
         Flags.success_save_time = time.time()
@@ -582,6 +579,17 @@ def _process_garbage_file(path: Path, *, defer_folder: bool = False, manual: boo
     return True
 
 
+def _has_valid_nfo(root: Path, file_name: str, files: list[str]) -> bool:
+    target_lower = f"{file_name.lower()}.nfo"
+    for f in files:
+        if f.lower() == target_lower:
+            try:
+                return (root / f).stat().st_size > 0
+            except OSError:
+                return False
+    return False
+
+
 async def movie_lists(ignore_dirs: list[Path], media_type: list[str], movie_path: Path) -> list[Path]:
     start_time = time.time()
     total = []
@@ -656,7 +664,10 @@ async def movie_lists(ignore_dirs: list[Path], media_type: list[str], movie_path
                             continue
                         else:
                             temp_total.append(path)
-                        if not_skip_success or path not in Flags.success_list:
+                        is_scraped = path in Flags.success_list or _has_valid_nfo(root, file_name, files)
+                        if is_scraped:
+                            Flags.success_list.add(path)
+                        if not_skip_success or not is_scraped:
                             total.append(path)
                         else:
                             skip += 1
