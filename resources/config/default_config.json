@@ -680,7 +680,8 @@
     "llm_fallback_url": null,
     "llm_fallback_key": "",
     "llm_fallback_model": "",
-    "llm_fallback_read_timeout": 60
+    "llm_fallback_read_timeout": 60,
+    "llm_fallback_temperature": 0.9
   },
   "nfo_include_new": [
     "sorttitle",

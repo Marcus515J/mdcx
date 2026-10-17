@@ -47,7 +47,7 @@ from mdcx.config.enums import NfoInclude, Switch, Website
 from mdcx.config.extend import deal_url, get_movie_path_setting, parse_media_paths
 from mdcx.config.manager import manager
 from mdcx.config.resources import resources
-from mdcx.consts import GITHUB_ISSUES_URL, GITHUB_RELEASES_URL, IS_WINDOWS, LOCAL_VERSION
+from mdcx.consts import GITHUB_RELEASES_URL, IS_WINDOWS, LOCAL_VERSION
 from mdcx.core.naming import NameRenderOptions, NamingTarget, render_name
 from mdcx.core.network_check import run_network_check
 from mdcx.core.nfo import write_nfo
@@ -901,12 +901,10 @@ class MyMAinWindow(QMainWindow):
             else:
                 version_info = f'基于 MDC-GUI 修改 · 当前版本: {self.localversion} （ <font color="green">你使用的是最新版本！🎉 </font>）'
 
-        feedback = f' 💌 问题反馈: <a href="{GITHUB_ISSUES_URL}">GitHub Issues</a>'
-
-        # 显示版本信息和反馈入口
+        # 显示版本信息和下载入口
         signal_qt.show_log_text(version_info)
-        if feedback or download_link:
-            self.main_logs_show.emit(f"{feedback}{download_link}")
+        if download_link:
+            self.main_logs_show.emit(download_link)
         signal_qt.show_log_text("================================================================================")
         self.pushButton_check_javdb_cookie_clicked()  # 检测javdb cookie
         self.pushButton_check_javbus_cookie_clicked()  # 检测javbus cookie

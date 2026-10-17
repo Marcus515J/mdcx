@@ -74,7 +74,7 @@ def setup_local_model_controls(window, layout):
     ui.progressBar_hymt2.setTextVisible(False)
     ui.progressBar_hymt2.hide()
     grid.addWidget(ui.progressBar_hymt2, 5, 0, 1, 2)
-    ui.label_hymt2_status = QLabel("未启动；DeepSeek 云端仍为主接口。")
+    ui.label_hymt2_status = QLabel("未启动；云端主模型仍为主接口。")
     ui.label_hymt2_status.setTextFormat(Qt.TextFormat.PlainText)
     ui.label_hymt2_status.setWordWrap(True)
     grid.addWidget(ui.label_hymt2_status, 6, 0, 1, 2)
@@ -292,7 +292,7 @@ class LocalModelController(QObject):
             owner = "本软件管理" if self.service.owned else "复用外部服务，不在此停止"
             self.ui.label_hymt2_status.setText(f"已就绪（{owner}）：{value}。请在页面底部保存备用设置。")
         elif operation == "stop":
-            self.ui.label_hymt2_status.setText("已停止并释放本软件模型；DeepSeek 云端仍为主接口。")
+            self.ui.label_hymt2_status.setText("已停止并释放本软件模型；云端主模型仍为主接口。")
         elif operation == "check":
             state, message = value
             # Keep discovery/errors/save reminders visible while a stopped service stays stopped.

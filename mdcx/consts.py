@@ -7,7 +7,6 @@ LOCAL_VERSION = "v1.1.0"
 GITHUB_REPO = "Marcus515J/mdcx"
 GITHUB_RELEASES_URL = f"https://github.com/{GITHUB_REPO}/releases"
 GITHUB_RELEASES_API_LATEST = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
-GITHUB_ISSUES_URL = f"https://github.com/{GITHUB_REPO}/issues/new/choose"
 
 os_name = platform.system()
 mac_ver = platform.mac_ver()[0]

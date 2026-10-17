@@ -28,7 +28,7 @@ from mdcx.config.enums import (
 from mdcx.config.extend import get_movie_path_setting
 from mdcx.config.manager import manager
 from mdcx.config.resources import resources
-from mdcx.consts import GITHUB_ISSUES_URL, IS_WINDOWS
+from mdcx.consts import IS_WINDOWS
 from mdcx.gen.field_enums import CrawlerResultFields
 from mdcx.models.flags import Flags
 from mdcx.signals import signal_qt
@@ -67,7 +67,7 @@ def load_config(self: "MyMAinWindow"):
         signal_qt.show_log_text(
             f"⚠️ 读取配置文件出错:\n\t{'\n\t'.join(errors)}\n\n"
             "为避免破坏配置文件, 已自动切换为 _failed.json\n"
-            f'这是非预期错误, 请提交 <a href="{GITHUB_ISSUES_URL}">GitHub Issue</a>\n'
+            "这是非预期错误, 请查看日志\n"
         )
         manager.path = manager.data_folder / "_failed.json"
         return

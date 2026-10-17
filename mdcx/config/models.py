@@ -106,6 +106,7 @@ class TranslateConfig(BaseModel):
     llm_fallback_key: str = Field(default="", title="备用 LLM API Key")
     llm_fallback_model: str = Field(default="", title="备用 LLM 模型 ID")
     llm_fallback_read_timeout: int = Field(default=60, gt=0, title="备用 LLM 超时（秒）")
+    llm_fallback_temperature: float = Field(default_factory=lambda data: data["llm_temperature"], title="备用 LLM 温度")
     local_model_search_root: str = Field(default="", title="本机模型查找盘符或目录")
     local_model_server_path: str = Field(default="", title="本机 llama-server 程序路径")
     local_model_path: str = Field(default="", title="本机 Hy-MT2 模型路径")

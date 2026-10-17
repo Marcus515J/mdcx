@@ -2,14 +2,6 @@
 
 ![python](https://img.shields.io/badge/Python-3.13-3776AB.svg?style=flat&logo=python&logoColor=white)
 
-## 交流群
-
-[![Telegram](https://img.shields.io/badge/Telegram-Join_Chat-2CA5E0?style=flat&logo=telegram&logoColor=white)](https://t.me/mdcx_chat)
-
-> [!TIP]
-> **使用问题**：有关软件配置、使用心得等非技术性问题，建议优先加入 **Telegram 交流群**与群友交流。  
-> **Bug 反馈**：如遇程序异常或功能缺陷，请先确认是否为已知问题，再提交 **Issue** 并附上相关日志、问题番号等内容。
-
 ## 上游项目
 
 * [yoshiko2/Movie_Data_Capture](https://github.com/yoshiko2/Movie_Data_Capture): CLI 工具,
@@ -18,7 +10,8 @@
 * @Hermit/MDCx: AVDC 的 Fork, 一度在 [anyabc/something](https://github.com/anyabc/something/releases) 分发源代码及可执行文件.
 * 2023-11-3 @anyabc 因未知原因销号删库, 其分发的最后一个版本号为 20231014.
 * [@sqzw-x/mdcx](https://github.com/sqzw-x/mdcx)当前暂时停止维护.
-* 本项目基于 [@sqzw-x/mdcx](https://github.com/sqzw-x/mdcx), 继续进行维护及优化.
+* [@Hazard804/mdcx](https://github.com/Hazard804/mdcx)：Fork 自 [@sqzw-x/mdcx](https://github.com/sqzw-x/mdcx)。
+* 本仓库 [@Marcus515J/mdcx](https://github.com/Marcus515J/mdcx)：Fork 自 [@Hazard804/mdcx](https://github.com/Hazard804/mdcx)，继续进行维护及优化。
 
 向相关开发者表示敬意.
 
