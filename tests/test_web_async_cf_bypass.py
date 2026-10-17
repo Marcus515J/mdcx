@@ -148,6 +148,8 @@ async def test_call_bypass_html_uses_html_endpoint_and_params_and_sets_final_url
     assert isinstance(kwargs, dict)
     assert kwargs["params"] == {"url": "https://missav.ws/SNOS-003/cn"}
     assert kwargs["enable_cf_bypass"] is False
+    assert kwargs["retry_count"] == 1
+    assert kwargs["timeout"] == 90
     assert response.url == "https://missav.ws/dm2/SNOS-003/cn"
     assert response.headers.get("x-mdcx-bypass-mode") == "html"
 
@@ -590,7 +592,7 @@ async def test_request_enables_bypass_proxy_when_configured():
 
 
 @pytest.mark.asyncio
-async def test_request_retries_when_bypass_failed(monkeypatch):
+async def test_request_stops_after_one_bypass_failure(monkeypatch):
     client = AsyncWebClient(timeout=1, cf_bypass_url="http://127.0.0.1:8000")
     client.retry = 2
     host = "missav.ws"
@@ -629,10 +631,10 @@ async def test_request_retries_when_bypass_failed(monkeypatch):
 
     response, error = await client.request("GET", f"https://{host}/SNOS-008/cn")
 
-    assert error == ""
-    assert response is not None
-    assert call_count == 2
-    assert sleep_calls == [2.5]
+    assert "bypass cooling down" in error
+    assert response is None
+    assert call_count == 1
+    assert sleep_calls == []
 
 
 @pytest.mark.asyncio
@@ -836,3 +838,67 @@ def test_sanitize_url_still_removes_polluted_suffix():
 
     assert sanitized is True
     assert sanitized_url == "https://x.com?a=1"
+
+
+@pytest.mark.asyncio
+async def test_html_slot_is_shared_across_clients_and_cancelled_waiters_are_removed():
+    clients = [AsyncWebClient(timeout=1, cf_bypass_url="http://127.0.0.1:8000") for _ in range(6)]
+    active = peak = calls = 0
+    started = asyncio.Event()
+    finish = asyncio.Event()
+
+    async def fake_request(*args, **kwargs):
+        nonlocal active, peak, calls
+        calls += 1
+        active += 1
+        peak = max(peak, active)
+        started.set()
+        try:
+            await finish.wait()
+            return _fake_response(status_code=200), ""
+        finally:
+            active -= 1
+
+    for client in clients:
+        client.request = fake_request
+    tasks = [
+        asyncio.create_task(c._call_bypass_html(f"https://site{i}.test/", use_proxy=False))
+        for i, c in enumerate(clients)
+    ]
+    await started.wait()
+    tasks[2].cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await tasks[2]
+    finish.set()
+    results = await asyncio.gather(*(task for i, task in enumerate(tasks) if i != 2))
+    assert all(response is not None and not error for response, error in results)
+    assert peak == 1
+    assert calls == 5
+    assert active == 0
+    for client in clients:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_html_failure_never_starts_forced_second_round():
+    client = AsyncWebClient(timeout=1, retry=5, cf_bypass_url="http://127.0.0.1:8000")
+    html_calls = mirror_calls = 0
+
+    async def mirror(**kwargs):
+        nonlocal mirror_calls
+        mirror_calls += 1
+        return None, "mirror 请求超时"
+
+    async def html(*args, **kwargs):
+        nonlocal html_calls
+        html_calls += 1
+        return None, "连接超时"
+
+    client._call_bypass_mirror = mirror
+    client._call_bypass_html = html
+    response, error = await client._try_bypass_cloudflare(
+        host="cold.test", target_url="https://cold.test/", **_default_try_kwargs()
+    )
+    assert response is None and "连接超时" in error
+    assert (html_calls, mirror_calls) == (1, 1)
+    await client.close()

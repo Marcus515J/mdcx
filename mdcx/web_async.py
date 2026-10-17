@@ -6,7 +6,9 @@ import re
 import sys
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -33,6 +35,48 @@ from .network_fingerprint import (
     should_apply_fingerprint,
 )
 from .utils import collapse_inline_script_splits
+
+# Shared by all clients, including clients retained across configuration reloads.
+# A thread lock protects the FIFO so separate event loops also share one slot.
+_html_queue: deque[object] = deque()
+_html_queue_lock = threading.Lock()
+
+
+class SiteCircuitOpen(Exception):
+    pass
+
+
+@dataclass
+class CrawlRequestState:
+    is_blocked: Callable[[], bool]
+    request_failed: bool = False
+
+
+crawl_request_state: ContextVar[CrawlRequestState | None] = ContextVar("crawl_request_state", default=None)
+
+
+def _check_site_circuit() -> None:
+    state = crawl_request_state.get()
+    if state is not None and state.is_blocked():
+        raise SiteCircuitOpen("站点已断路，本次运行不再请求")
+
+
+@contextlib.asynccontextmanager
+async def _html_slot():
+    ticket = object()
+    with _html_queue_lock:
+        _html_queue.append(ticket)
+    try:
+        while True:
+            with _html_queue_lock:
+                ready = _html_queue[0] is ticket
+            if ready:
+                break
+            await asyncio.sleep(0.05)
+        yield
+    finally:
+        with _html_queue_lock:
+            _html_queue.remove(ticket)
 
 
 class AsyncWebLimiters:
@@ -308,12 +352,15 @@ class AsyncWebClient:
         timeout: float,
         cf_bypass_url: str = "",
         cf_bypass_proxy: str | None = None,
+        cf_bypass_timeout: float = 90,
+        site_total_timeout: float = 120,
         log_fn: Callable[[str], None] | None = None,
         limiters: AsyncWebLimiters | None = None,
     ):
         self.retry = retry
         self.proxy = proxy
         self.timeout = timeout
+        self.site_total_timeout = float(site_total_timeout)
         self.max_clients = 100
         self._session_kwargs = {
             "max_clients": self.max_clients,
@@ -344,10 +391,10 @@ class AsyncWebClient:
         self._cf_last_bypass_attempt_at: dict[str, float] = {}
         self._cf_host_challenge_hits: dict[str, int] = {}
         self._cf_bypass_min_interval = 2.0
-        self._cf_bypass_timeout = 45.0
+        self._cf_bypass_timeout = float(cf_bypass_timeout)
         self._cf_bypass_retries = 2
         self._cf_mirror_max_redirects = 8
-        self._cf_request_bypass_rounds = 2
+        self._cf_request_bypass_rounds = 1
         self._cf_retry_max_concurrent_per_host = 4
         self._cf_retry_after_bypass_base_delay = 1.2
         self._cf_retry_after_bypass_jitter = 1.3
@@ -505,6 +552,7 @@ class AsyncWebClient:
         )
 
     async def _curl_request(self, *, fingerprint: BrowserFingerprint | None = None, **kwargs) -> Response:
+        _check_site_circuit()
         url = str(kwargs.get("url") or "")
         proxy = kwargs.get("proxy")
         pool_key = HostPoolManager.key_for_request(url, str(proxy) if proxy else None, fingerprint)
@@ -515,6 +563,7 @@ class AsyncWebClient:
         session, generation = await pool.begin_request()
         release_now = True
         try:
+            _check_site_circuit()
             coro = session.request(**kwargs)
             timeout_seconds = self._request_timeout_seconds(kwargs.get("timeout"))
             if timeout_seconds is None:
@@ -984,11 +1033,14 @@ class AsyncWebClient:
                     headers=mirror_headers,
                     data=current_data,
                     json=current_json_data,
-                    timeout=timeout or self._cf_bypass_timeout,
+                    # Preserve the pre-existing mirror timeout; only /html changes.
+                    timeout=timeout or 45.0,
                     stream=False,
                     allow_redirects=False,
                 )
                 error = ""
+            except SiteCircuitOpen:
+                raise
             except Timeout:
                 response = None
                 error = "mirror 请求超时"
@@ -1064,15 +1116,26 @@ class AsyncWebClient:
             params["bypassCookieCache"] = "true"
             self._log_cf("♻️ /html bypass 将强制刷新 cookies")
 
-        response, error = await self.request(
-            "GET",
-            f"{self.cf_bypass_url}/html",
-            use_proxy=False,
-            allow_redirects=True,
-            timeout=self._cf_bypass_timeout,
-            params=params,
-            enable_cf_bypass=False,
-        )
+        host = urlsplit(target_url).hostname or ""
+        queued_at = time.monotonic()
+        async with _html_slot():
+            self._log_cf(f"/html 开始，在途=1，排队={time.monotonic() - queued_at:.2f}s", host)
+            try:
+                async with asyncio.timeout(self._cf_bypass_timeout):
+                    response, error = await self.request(
+                        "GET",
+                        f"{self.cf_bypass_url}/html",
+                        use_proxy=False,
+                        allow_redirects=True,
+                        timeout=self._cf_bypass_timeout,
+                        params=params,
+                        enable_cf_bypass=False,
+                        retry_count=1,
+                    )
+            except TimeoutError:
+                response, error = None, f"/html 等待超时 ({self._cf_bypass_timeout:g}s)"
+            finally:
+                self._log_cf("/html 结束，在途=0", host)
 
         if response is None:
             return None, error
@@ -1192,6 +1255,8 @@ class AsyncWebClient:
                             self._log_cf(f"🌐 /html 最终地址: {final_url}", host)
                         return bypass_response, ""
                     error = f"mirror: {mirror_error}; html: {html_error}"
+                    # One browser launch only: no retry or forced-cookie second round.
+                    can_retry = False
                 else:
                     error = f"mirror 失败且 {str(method).upper()} 不支持 /html 兜底: {mirror_error}"
                     if mirror_status is not None and not self._is_retryable_status_code(mirror_status):
@@ -1403,6 +1468,8 @@ class AsyncWebClient:
                             self._cf_host_challenge_hits[host] = 0
                         await self._record_transport_success(pool_key=pool_key)
                         return resp, ""
+                except SiteCircuitOpen:
+                    raise
                 except Timeout:
                     error_msg = "连接超时"
                     retry = True  # 超时错误进行重试
@@ -1436,11 +1503,21 @@ class AsyncWebClient:
                     if sleep_after_cf_bypass and host:
                         self._log_cf(f"⏳ bypass 后退避 {sleep_seconds:.2f}s", host)
                     await asyncio.sleep(sleep_seconds)
+            self._record_crawl_failure(error_msg)
             return None, f"{method} {url} 失败: {error_msg}"
+        except SiteCircuitOpen:
+            raise
         except Exception as e:
             error_msg = f"{method} {url} 未知错误:  {str(e)}"
             self._log(f"🔴 {error_msg}")
+            self._record_crawl_failure(error_msg)
             return None, error_msg
+
+    def _record_crawl_failure(self, error: str) -> None:
+        state = crawl_request_state.get()
+        # A missing number is a normal result, including mirror's terminal 404.
+        if state is not None and not re.search(r"\bHTTP 404\b", error):
+            state.request_failed = True
 
     async def get_text(
         self,
