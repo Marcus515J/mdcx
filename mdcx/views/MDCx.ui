@@ -22861,7 +22861,7 @@ code { font-family: Consolas, Menlo, monospace; background-color: #f3f4f6; paddi
 &lt;p&gt;本地影片元数据刮削与整理工具，配合 Emby、Jellyfin、Kodi、Plex 等媒体库软件完成元数据抓取、封面/剧照下载、字幕与角标处理以及目录归档。&lt;/p&gt;
 
 &lt;h3&gt;一、适用版本与平台、首次设置与下载入口&lt;/h3&gt;
-&lt;p&gt;&lt;b&gt;适用版本与平台：&lt;/b&gt;当前版本 &lt;code&gt;v1.1.0&lt;/code&gt;，提供 Windows（&lt;code&gt;x86_64&lt;/code&gt;）与 macOS（&lt;code&gt;arm64&lt;/code&gt;）桌面版。&lt;/p&gt;
+&lt;p&gt;&lt;b&gt;适用版本与平台：&lt;/b&gt;提供 Windows（&lt;code&gt;x86_64&lt;/code&gt;）与 macOS（&lt;code&gt;arm64&lt;/code&gt;）桌面版。&lt;/p&gt;
 &lt;p&gt;&lt;b&gt;当前成品下载与更新入口：&lt;/b&gt;&lt;a href=&quot;https://github.com/Marcus515J/mdcx/releases&quot;&gt;https://github.com/Marcus515J/mdcx/releases&lt;/a&gt;&lt;/p&gt;
 &lt;p&gt;&lt;b&gt;首次设置：&lt;/b&gt;首次启动会在数据目录自动生成默认 JSON 配置文件；可在「设置」页底部切换、新建或重置配置文件。若指向旧版 &lt;code&gt;.ini&lt;/code&gt; 配置，程序会自动转换并保存为 &lt;code&gt;.v2.json&lt;/code&gt;，同时保留原 &lt;code&gt;.ini&lt;/code&gt; 文件不删除。&lt;/p&gt;
 

@@ -11188,7 +11188,7 @@ class Ui_MDCx(object):
 "<p>本地影片元数据刮削与整理工具，配合 Emby、Jellyfin、Kodi、Plex 等媒体库软件完成元数据抓取、封面/剧照下载、字幕与角标处理以及目录归档。</p>\n"
 "\n"
 "<h3>一、适用版本与平台、首次设置与下载入口</h3>\n"
-"<p><b>适用版本与平台：</b>当前版本 <code>v1.1.0</code>，提供 Windows（<code>x86_64</code>）与 macOS（<code>arm64</code>）桌面版。</p>\n"
+"<p><b>适用版本与平台：</b>提供 Windows（<code>x86_64</code>）与 macOS（<code>arm64</code>）桌面版。</p>\n"
 "<p><b>当前成品下载与更新入口：</b><a href=\"https://github.com/Marcus515J/mdcx/releases\">https://github.com/Marcus515J/mdcx/releases</a></p>\n"
 "<p><b>首次设置：</b>首次启动会在数据目录自动生成默认 JSON 配置文件；可在「设置」页底部切换、新建或重置配置文件。若指向旧版 <code>.ini</code> 配置，程序会自动转换并保存为 <code>.v2.json</code>，同时保留原 <code>.ini</code> 文件不删除。</p>\n"
 "\n"
