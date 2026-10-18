@@ -541,6 +541,8 @@ async def _translate_english_tag(tag_req: str, translate_by_list: list[Translato
             "",
             title_language=target_language,
             outline_language=target_language,
+            title_field_name="",
+            outline_field_name="",
         )
         if result.error:
             signal.add_log(f"🔴 Translation failed!({result.label}) Error: {result.error}")
@@ -562,12 +564,15 @@ async def _translate_content(
             signal.add_log(f"🟡 Translation skipped!({skip_label}) {skip_reason}")
             continue
 
+        has_both = bool(tag and overview_req)
         result = await translate_with_engine(
             each,
             tag,
             overview_req,
             title_language=target_language,
             outline_language=target_language,
+            title_field_name="标签" if has_both else "",
+            outline_field_name="简介" if has_both else "",
         )
         if result.error:
             signal.add_log(f"🔴 Translation failed!({result.label}) Error: {result.error}")

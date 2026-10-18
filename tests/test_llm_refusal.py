@@ -103,7 +103,7 @@ async def test_required_paths(llm, path):
         assert (
             logs.index("⚠️ 翻译被拒")
             < logs.index("🔁 翻译被拒：重试第 1 次")
-            < logs.index("主模型失败，转备用接口")
+            < logs.index("简介：主模型失败，转备用接口")
             < logs.index("📝 保留原文")
         )
 

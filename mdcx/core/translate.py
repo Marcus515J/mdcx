@@ -296,9 +296,12 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
                 title_language=title_language,
                 outline_language=outline_language,
             )
-            if result.fallback_used:
-                switch_msg = "主模型失败，转本机备用" if result.interface == "本机备用" else "主模型失败，转备用接口"
-                LogBuffer.log().write(f"\n {switch_msg}")
+            if result.title_fallback:
+                title_dest = "转本机备用" if result.title_interface == "本机备用" else "转备用接口"
+                LogBuffer.log().write(f"\n 标题：主模型失败，{title_dest}")
+            if result.outline_fallback:
+                outline_dest = "转本机备用" if result.outline_interface == "本机备用" else "转备用接口"
+                LogBuffer.log().write(f"\n 简介：主模型失败，{outline_dest}")
             if result.error:
                 LogBuffer.log().write(
                     f"\n 🔴 Translation failed!({result.label})({get_used_time(start_time)}s) Error: {result.error}"
