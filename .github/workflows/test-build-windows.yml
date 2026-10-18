@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ff6660f4570f4dd90215e2fc8901097f6cfd5a28
+          ref: 1a02cd21a1eca350f5a8aed0a6a8c5c89e5b96ba
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
@@ -32,7 +32,7 @@ jobs:
       - name: Validate translation settings and versions on Windows
         shell: bash
         run: |
-          uv run --locked pytest -q tests/test_ui_terms.py tests/test_translate_llm.py tests/test_llm_refusal.py tests/test_llm_temperature.py tests/test_llm_settings_ui.py tests/test_version.py
+          uv run --locked pytest -q tests/test_ui_terms.py tests/test_translate_llm.py tests/test_llm_refusal.py tests/test_llm_temperature.py tests/test_llm_settings_ui.py tests/test_version.py tests/test_local_model.py
           uv run --locked python scripts/check_release_version.py "$BUILD_VERSION"
       - name: Build Windows application
         shell: bash
@@ -43,12 +43,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p test-assets
-          cp dist/MDCx.exe "test-assets/MDCx-$BUILD_VERSION-TEST-ff6660f-windows-x86_64.exe"
+          cp dist/MDCx.exe "test-assets/MDCx-$BUILD_VERSION-TEST-1a02cd2-windows-x86_64.exe"
           cd test-assets
           sha256sum *.exe > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-x86_64-test-ff6660f
+          name: windows-x86_64-test-1a02cd2
           path: test-assets/*
           if-no-files-found: error
           retention-days: 14
