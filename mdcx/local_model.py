@@ -83,8 +83,12 @@ def discover(
     if any(not root.is_dir() or root.is_symlink() or root.is_junction() for root in queue):
         raise ValueError("查找位置不存在，或不是普通目录。")
     exclusions = [Path(p).absolute() for p in excluded if p]
-    servers = {server} if valid_file(server, "server") else set()
-    models = {model} if valid_file(model, "model") else set()
+    if force:
+        servers = set()
+        models = set()
+    else:
+        servers = {server} if valid_file(server, "server") else set()
+        models = {model} if valid_file(model, "model") else set()
     recorded_servers, recorded_models = [], []
     visited = set()
     count, skipped, last_update = 0, 0, 0.0

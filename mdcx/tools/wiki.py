@@ -8,6 +8,7 @@ import bs4
 import zhconv
 
 from ..base.translate import (
+    format_translator_label,
     get_translator_skip_reason,
     translate_with_engine,
 )
@@ -530,7 +531,8 @@ async def _translate_english_tag(tag_req: str, translate_by_list: list[Translato
     target_language = _get_actor_info_translate_language(manager.config.emby_on)
     for each in translate_by_list:
         if skip_reason := get_translator_skip_reason(each):
-            signal.add_log(f"🟡 Translation skipped!({each.capitalize()}) {skip_reason}")
+            skip_label = format_translator_label(each)
+            signal.add_log(f"🟡 Translation skipped!({skip_label}) {skip_reason}")
             continue
 
         result = await translate_with_engine(
@@ -541,9 +543,10 @@ async def _translate_english_tag(tag_req: str, translate_by_list: list[Translato
             outline_language=target_language,
         )
         if result.error:
-            signal.add_log(f"🔴 Translation failed!({each.capitalize()}) Error: {result.error}")
+            signal.add_log(f"🔴 Translation failed!({result.label}) Error: {result.error}")
             continue
         actor_info.taglines = [result.title]
+        signal.add_log(f"📝 翻译成功({result.label})")
         return ""  # 清空tag_req表示已翻译
     return tag_req
 
@@ -555,7 +558,8 @@ async def _translate_content(
     target_language = _get_actor_info_translate_language(manager.config.emby_on)
     for each in translators:
         if skip_reason := get_translator_skip_reason(each):
-            signal.add_log(f"🟡 Translation skipped!({each.capitalize()}) {skip_reason}")
+            skip_label = format_translator_label(each)
+            signal.add_log(f"🟡 Translation skipped!({skip_label}) {skip_reason}")
             continue
 
         result = await translate_with_engine(
@@ -566,7 +570,7 @@ async def _translate_content(
             outline_language=target_language,
         )
         if result.error:
-            signal.add_log(f"🔴 Translation failed!({each.capitalize()}) Error: {result.error}")
+            signal.add_log(f"🔴 Translation failed!({result.label}) Error: {result.error}")
             continue
         translated = False
         if tag and result.translated_title:
@@ -576,6 +580,7 @@ async def _translate_content(
             overview = _clean_translated_overview(result.outline)
             translated = True
         if translated:
+            signal.add_log(f"📝 翻译成功({result.label})")
             break
     return overview
 

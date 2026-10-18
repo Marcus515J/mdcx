@@ -4,6 +4,7 @@ import time
 import zhconv
 
 from ..base.translate import (
+    format_translator_label,
     get_translator_skip_reason,
     translate_with_engine,
 )
@@ -285,7 +286,8 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
         translate_by_list = manager.config.translate_config.translate_by.copy()
         for each in translate_by_list:
             if skip_reason := get_translator_skip_reason(each):
-                LogBuffer.log().write(f"\n 🟡 Translation skipped!({each.capitalize()}) {skip_reason}")
+                skip_label = format_translator_label(each)
+                LogBuffer.log().write(f"\n 🟡 Translation skipped!({skip_label}) {skip_reason}")
                 continue
             result = await translate_with_engine(
                 each,
@@ -294,9 +296,12 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
                 title_language=title_language,
                 outline_language=outline_language,
             )
+            if result.fallback_used:
+                switch_msg = "主模型失败，转本机备用" if result.interface == "本机备用" else "主模型失败，转备用接口"
+                LogBuffer.log().write(f"\n {switch_msg}")
             if result.error:
                 LogBuffer.log().write(
-                    f"\n 🔴 Translation failed!({each.capitalize()})({get_used_time(start_time)}s) Error: {result.error}"
+                    f"\n 🔴 Translation failed!({result.label})({get_used_time(start_time)}s) Error: {result.error}"
                 )
                 continue
             if result.translated_title:
@@ -320,13 +325,13 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
                 if source and not applied
             ]
             if translated_fields:
-                status = "部分翻译完成" if preserved_fields else "翻译完成"
+                status = "部分翻译完成" if preserved_fields else "翻译成功"
                 details = "已翻译：" + "、".join(translated_fields)
             else:
                 status, details = "未获得译文", ""
             if preserved_fields:
                 details += ("；" if details else "") + "保留原文：" + "、".join(preserved_fields)
-            LogBuffer.log().write(f"\n 📝 {status}({each.capitalize()})({get_used_time(start_time)}s) | {details}")
+            LogBuffer.log().write(f"\n 📝 {status}({result.label})({get_used_time(start_time)}s) | {details}")
             break
         else:
             LogBuffer.log().write(

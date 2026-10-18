@@ -63,6 +63,12 @@ def test_cookie_help_content_requirements():
     assert "复制值 / Copy value" in cookie_html
     assert "以你的浏览器实际界面为准" in cookie_html
 
+    # R4: Inline SVG diagrams and offline requirement
+    assert cookie_html.count("<svg") >= 6
+    assert cookie_html.count("示意图，菜单名以你的浏览器实际界面为准") >= 6
+    assert "<img" not in cookie_html
+    assert "http://" not in cookie_html and "https://" not in cookie_html
+
 
 def test_r1_facts_in_about_text():
     ui_path = Path("mdcx/views/MDCx.ui")

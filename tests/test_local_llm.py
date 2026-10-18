@@ -295,7 +295,7 @@ async def test_cloud_primary_with_keyless_local_fallback(server, monkeypatch, pa
         assert body["model"] == "HY-MT2-7B-Q8_0"
         assert body["messages"] == cloud_calls[0]["messages"]
         assert body["temperature"] == cloud_calls[0]["temperature"]
-    assert ("🔄 换备用模型" in logs) == bool(local_calls)
+    assert ("主模型失败，转本机备用" in logs) == bool(local_calls)
     assert ("📝 保留原文" in logs) == (expected == source)
 
 

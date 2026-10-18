@@ -385,3 +385,133 @@ def test_empty_translate_by_model_and_migration():
     data = {"translate_config": {"translate_by": []}}
     migrate_config_data(data)
     assert data["translate_config"]["translate_by"] == [Translator.LLM.value]
+
+
+@pytest.mark.asyncio
+async def test_translation_log_shows_primary_cloud_model(monkeypatch: pytest.MonkeyPatch):
+    from mdcx.core import translate as core_translate
+    from mdcx.models.log_buffer import LogBuffer
+
+    class _FieldCfg:
+        def __init__(self, language: Language, translate: bool):
+            self.language = language
+            self.translate = translate
+
+    class _TranslateCfg:
+        def __init__(self):
+            self.translate_by = [Translator.LLM]
+            self.llm_url = "https://api.deepseek.com/v1"
+            self.llm_model = "deepseek-flash"
+            self.llm_key = "test-key"
+            self.llm_prompt_title = "TITLE::{content}"
+            self.llm_prompt_outline = "OUTLINE::{content}"
+
+    class _Cfg:
+        def __init__(self):
+            self.translate_config = _TranslateCfg()
+
+        def get_field_config(self, _field):
+            return _FieldCfg(Language.ZH_CN, True)
+
+    class _Manager:
+        def __init__(self):
+            self.config = _Cfg()
+
+    async def fake_translate_with_engine(*args, **kwargs):
+        title = args[1]
+        outline = args[2]
+        return TranslateResult(
+            title=f"CN::{title}",
+            outline=f"CN::{outline}",
+            error=None,
+            engine=Translator.LLM,
+            translated_title=True,
+            translated_outline=True,
+            interface="云端主模型",
+            model="deepseek-flash",
+        )
+
+    monkeypatch.setattr(core_translate, "manager", _Manager())
+    monkeypatch.setattr(core_translate, "translate_with_engine", fake_translate_with_engine)
+    monkeypatch.setattr(core_translate, "get_translator_skip_reason", lambda _translator: None)
+
+    LogBuffer.log().clear()
+    data = CrawlersResult.empty()
+    data.title = "日本語のタイトル"
+    data.outline = "日本語のあらすじ"
+
+    await core_translate.translate_title_outline(data, cd_part="", movie_number="TEST-001")
+
+    logs = LogBuffer.log().get()
+    assert "📝 翻译成功(LLM·云端主模型 deepseek-flash)" in logs
+    assert "Llm" not in logs
+
+
+@pytest.mark.asyncio
+async def test_translation_log_shows_fallback_local_and_remote(monkeypatch: pytest.MonkeyPatch):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from mdcx.base import translate as base_translate
+    from mdcx.models.log_buffer import LogBuffer
+
+    # 1. 测试主模型失败转本机备用
+    cfg = base_translate.manager.config
+    tc = cfg.translate_config
+    monkeypatch.setattr(tc, "llm_url", "https://api.deepseek.com/v1")
+    monkeypatch.setattr(tc, "llm_model", "deepseek-flash")
+    monkeypatch.setattr(tc, "llm_key", "synthetic-key")
+    monkeypatch.setattr(tc, "llm_fallback_url", "http://127.0.0.1:8080/v1")
+    monkeypatch.setattr(tc, "llm_fallback_model", "Hy-MT2")
+    monkeypatch.setattr(tc, "llm_fallback_key", "")
+    monkeypatch.setattr(tc, "llm_refusal_retries", 0)
+
+    signal_logs = []
+    monkeypatch.setattr(base_translate.signal, "add_log", signal_logs.append)
+    LogBuffer.log().clear()
+
+    class MockPrimary:
+        async def ask(self, **kwargs):
+            return None
+
+    @asynccontextmanager
+    async def fake_acquire():
+        yield SimpleNamespace(llm_client=MockPrimary())
+
+    monkeypatch.setattr(base_translate.manager, "acquire_computed", fake_acquire)
+
+    async def fake_fallback_ask(self, **kwargs):
+        return "本机备用翻译成功"
+
+    from mdcx.llm import LLMClient
+
+    monkeypatch.setattr(LLMClient, "ask", fake_fallback_ask)
+
+    from mdcx.core import translate as core_translate
+
+    data = CrawlersResult.empty()
+    data.title = "日本語タイトル"
+    data.outline = "日本語概要"
+
+    await core_translate.translate_title_outline(data, cd_part="", movie_number="TEST-002")
+
+    assert "主模型失败，转本机备用" in signal_logs
+    assert "主模型失败，转本机备用" in LogBuffer.log().get()
+    assert "📝 翻译成功(LLM·本机备用 Hy-MT2)" in LogBuffer.log().get()
+
+    # 2. 测试主模型失败转备用接口（非本机）
+    monkeypatch.setattr(tc, "llm_fallback_url", "https://api.backup.com/v1")
+    monkeypatch.setattr(tc, "llm_fallback_model", "backup-chat")
+    monkeypatch.setattr(tc, "llm_fallback_key", "backup-key")
+    signal_logs.clear()
+    LogBuffer.log().clear()
+
+    data2 = CrawlersResult.empty()
+    data2.title = "日本語タイトル2"
+    data2.outline = "日本語概要2"
+
+    await core_translate.translate_title_outline(data2, cd_part="", movie_number="TEST-003")
+
+    assert "主模型失败，转备用接口" in signal_logs
+    assert "主模型失败，转备用接口" in LogBuffer.log().get()
+    assert "📝 翻译成功(LLM·备用接口 backup-chat)" in LogBuffer.log().get()

@@ -11,6 +11,19 @@ from ..llm import LLMClient, is_loopback_url
 from ..signals import signal
 
 
+def format_translator_label(
+    translator: Translator | str = Translator.LLM,
+    interface: str = "",
+    model: str = "",
+) -> str:
+    if not interface:
+        tc = manager.config.translate_config
+        interface = "本机主模型" if is_loopback_url(str(tc.llm_url)) else "云端主模型"
+        model = model or tc.llm_model
+    model_str = model.strip() if model else ""
+    return f"LLM·{interface} {model_str}".rstrip()
+
+
 @dataclass(slots=True)
 class TranslateResult:
     title: str
@@ -19,6 +32,13 @@ class TranslateResult:
     engine: Translator
     translated_title: bool = False
     translated_outline: bool = False
+    interface: str = ""
+    model: str = ""
+    fallback_used: bool = False
+
+    @property
+    def label(self) -> str:
+        return format_translator_label(self.engine, self.interface, self.model)
 
     @property
     def success(self) -> bool:
@@ -36,6 +56,9 @@ def _build_translate_result(
     title: str,
     outline: str,
     error: str | None,
+    interface: str = "",
+    model: str = "",
+    fallback_used: bool = False,
 ) -> TranslateResult:
     translated_title = _has_effective_translation(source_title, title)
     translated_outline = _has_effective_translation(source_outline, outline)
@@ -48,6 +71,9 @@ def _build_translate_result(
         engine=engine,
         translated_title=translated_title,
         translated_outline=translated_outline,
+        interface=interface,
+        model=model,
+        fallback_used=fallback_used,
     )
 
 
@@ -77,17 +103,31 @@ def _is_llm_refusal(text: str, prefixes: list[str]) -> bool:
     return any(prefix.strip() and opening.startswith(prefix.strip().casefold()) for prefix in prefixes)
 
 
-async def _llm_translate(text: str, prompt_template: str, target_language: str = "简体中文") -> str | None:
+async def _llm_translate(
+    text: str,
+    prompt_template: str,
+    target_language: str = "简体中文",
+    details: dict | None = None,
+) -> str | None:
     """Retry refusals and unavailable results, then fallback or preserve the source."""
     if not text:
         return ""
     cfg = manager.config
     tc = cfg.translate_config
+    primary_is_local = is_loopback_url(str(tc.llm_url))
+    primary_interface = "本机主模型" if primary_is_local else "云端主模型"
+    primary_model = tc.llm_model.strip()
+
+    if details is not None:
+        details["interface"] = primary_interface
+        details["model"] = primary_model
+        details["fallback"] = False
+
     request = {
         "system_prompt": "You are a professional translator.",
         "user_prompt": prompt_template.replace("{content}", text).replace("{lang}", target_language),
         "temperature": tc.llm_temperature,
-        "max_try": 1 if is_loopback_url(str(tc.llm_url)) else tc.llm_max_try,
+        "max_try": 1 if primary_is_local else tc.llm_max_try,
         "log_fn": signal.add_log,
     }
     async with manager.acquire_computed() as computed:
@@ -115,10 +155,20 @@ async def _llm_translate(text: str, prompt_template: str, target_language: str =
             and tc.llm_fallback_model.strip()
             and (tc.llm_fallback_key.strip() or is_loopback_url(str(tc.llm_fallback_url)))
         ):
-            signal.add_log("🔄 换备用模型")
+            fallback_is_local = is_loopback_url(str(tc.llm_fallback_url))
+            fallback_interface = "本机备用" if fallback_is_local else "备用接口"
+            fallback_model = tc.llm_fallback_model.strip()
+            switch_msg = "主模型失败，转本机备用" if fallback_is_local else "主模型失败，转备用接口"
+            signal.add_log(switch_msg)
+
+            if details is not None:
+                details["interface"] = fallback_interface
+                details["model"] = fallback_model
+                details["fallback"] = True
+
             fallback = LLMClient(
                 api_key=tc.llm_fallback_key,
-                base_url=tc.llm_fallback_url.unicode_string(),
+                base_url=str(tc.llm_fallback_url),
                 proxy=cfg.proxy if cfg.use_proxy else None,
                 timeout=Timeout(cfg.timeout, read=tc.llm_fallback_read_timeout),
                 rate=(max(tc.llm_max_req_sec, 1), max(1, 1 / tc.llm_max_req_sec)),
@@ -162,20 +212,49 @@ async def translate_with_engine(
     title_language: Language | str,
     outline_language: Language | str,
 ) -> TranslateResult:
+    title_details = {}
+    outline_details = {}
     title_result, outline_result = await asyncio.gather(
         _llm_translate(
-            title, manager.config.translate_config.llm_prompt_title, get_llm_target_language(title_language)
+            title,
+            manager.config.translate_config.llm_prompt_title,
+            get_llm_target_language(title_language),
+            details=title_details,
         ),
         _llm_translate(
             outline,
             manager.config.translate_config.llm_prompt_outline,
             get_llm_target_language(outline_language),
+            details=outline_details,
         ),
     )
+    tc = manager.config.translate_config
+    if outline_details.get("fallback") or title_details.get("fallback"):
+        interface = (
+            outline_details.get("interface") if outline_details.get("fallback") else title_details.get("interface")
+        )
+        model = outline_details.get("model") if outline_details.get("fallback") else title_details.get("model")
+    else:
+        interface = (
+            title_details.get("interface")
+            or outline_details.get("interface")
+            or ("本机主模型" if is_loopback_url(str(tc.llm_url)) else "云端主模型")
+        )
+        model = title_details.get("model") or outline_details.get("model") or tc.llm_model.strip()
+
+    fallback_used = bool(outline_details.get("fallback") or title_details.get("fallback"))
     error = "LLM 翻译失败! 查看网络日志以获取更多信息" if title_result is None or outline_result is None else None
-    result = _build_translate_result(engine, title, outline, title_result or "", outline_result or "", error)
-    # A preserved source is a completed refusal fallback, including when both fields are preserved.
-    # Flags remain False for the source.
+    result = _build_translate_result(
+        engine,
+        title,
+        outline,
+        title_result or "",
+        outline_result or "",
+        error,
+        interface=interface,
+        model=model,
+        fallback_used=fallback_used,
+    )
     if error is None:
         result.error = None
     return result

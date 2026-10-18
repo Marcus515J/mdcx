@@ -198,8 +198,8 @@ class LocalModelController(QObject):
             "find",
             lambda: discover(
                 roots,
-                server,
-                model,
+                server if not force else "",
+                model if not force else "",
                 force=force,
                 cancel=self.discovery_cancel,
                 progress=self.progress.emit,
@@ -270,23 +270,36 @@ class LocalModelController(QObject):
         if isinstance(value, Exception):
             self.ui.label_hymt2_status.setText(str(value))
         elif operation == "find":
-            for kind, candidates in (("server", value.servers), ("model", value.models)):
-                combo = getattr(self.ui, f"comboBox_hymt2_{kind}")
-                previous = display_path(combo.currentText())
-                candidates = [display_path(path) for path in candidates]
-                if value.cached:
-                    candidates = list(
-                        dict.fromkeys([display_path(combo.itemText(i)) for i in range(combo.count())] + candidates)
-                    )
-                combo.clear()
-                combo.addItems(candidates)
-                if previous in candidates:
-                    combo.setCurrentText(previous)
-            self.ui.label_hymt2_status.setText(
-                "已验证选中路径；保留已知候选，重新查找可更新完整模型列表。"
-                if value.cached
-                else f"找到程序 {len(value.servers)} 个、模型 {len(value.models)} 个；请从列表选择，缺失时可浏览补充。"
-            )
+            if not value.servers and not value.models:
+                for kind in ("server", "model"):
+                    combo = getattr(self.ui, f"comboBox_hymt2_{kind}")
+                    combo.clear()
+                    combo.clearEditText()
+                self.ui.label_hymt2_status.setText(
+                    "未在当前目录下找到服务程序或模型文件；已清空路径，请重新选择目录或浏览补充。"
+                )
+            else:
+                for kind, candidates in (("server", value.servers), ("model", value.models)):
+                    combo = getattr(self.ui, f"comboBox_hymt2_{kind}")
+                    previous = display_path(combo.currentText())
+                    candidates = [display_path(path) for path in candidates]
+                    if value.cached:
+                        candidates = list(
+                            dict.fromkeys([display_path(combo.itemText(i)) for i in range(combo.count())] + candidates)
+                        )
+                    combo.clear()
+                    combo.addItems(candidates)
+                    if previous in candidates:
+                        combo.setCurrentText(previous)
+                    elif candidates:
+                        combo.setCurrentIndex(0)
+                    else:
+                        combo.clearEditText()
+                self.ui.label_hymt2_status.setText(
+                    "已验证选中路径；保留已知候选，重新查找可更新完整模型列表。"
+                    if value.cached
+                    else f"找到程序 {len(value.servers)} 个、模型 {len(value.models)} 个；请从列表选择，缺失时可浏览补充。"
+                )
         elif operation == "start":
             self.apply_fallback(value)
             owner = "本软件管理" if self.service.owned else "复用外部服务，不在此停止"

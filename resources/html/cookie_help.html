@@ -65,7 +65,7 @@
       padding-left: 22px;
     }
     li {
-      margin-bottom: 10px;
+      margin-bottom: 14px;
     }
     li:last-child {
       margin-bottom: 0;
@@ -77,6 +77,25 @@
       padding: 2px 6px;
       border-radius: 4px;
       border: 1px solid var(--border);
+    }
+    .diagram-container {
+      margin: 10px 0 12px;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+    }
+    .diagram-svg {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+    .diagram-caption {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+      margin-top: 6px;
     }
     .notice {
       margin-top: 14px;
@@ -115,10 +134,159 @@
       <h2>一、如何在 Chrome / Edge 开发者工具中复制 Cookie</h2>
       <ol>
         <li>使用 <strong>Chrome</strong> 或 <strong>Edge</strong> 浏览器打开目标站点（若在 MDCx 中配置了该站点的自定义镜像网址，请打开同一个域名），完成登录或年龄确认。</li>
-        <li>在页面空白处点击鼠标右键选择 <strong>检查（Inspect）</strong>（或直接按快捷键 <kbd>F12</kbd> / macOS 按 <kbd>⌥ Option</kbd> + <kbd>⌘ Command</kbd> + <kbd>I</kbd>）打开开发者工具。</li>
-        <li>在开发者工具顶部切换到 <strong>Network（网络）</strong> 面板，筛选栏选择 <strong>All（全部）</strong> 或 <strong>Doc（文档）</strong>，然后按 <kbd>F5</kbd> 刷新当前网页。</li>
-        <li>在请求列表顶部点击第一条主页面请求（通常与当前网页路径同名），在右侧详情区切换到 <strong>Headers（标头）</strong> → 展开 <strong>Request Headers（请求标头）</strong>，找到 <code>Cookie</code>（或 <code>cookie</code>）字段。</li>
-        <li>优先在 <code>Cookie</code>（或 <code>cookie</code>）这一行上点击鼠标右键，选择 <strong>复制值 / Copy value</strong>；如果右键菜单中没有该项，再手动框选该行对应的值文本并右键复制（或按 <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>C</kbd>）。注意菜单名以你的浏览器实际界面为准。</li>
+        <li>
+          在页面空白处点击鼠标右键选择 <strong>检查（Inspect）</strong>（或直接按快捷键 <kbd>F12</kbd> / macOS 按 <kbd>⌥ Option</kbd> + <kbd>⌘ Command</kbd> + <kbd>I</kbd>）打开开发者工具。
+          <div class="diagram-container">
+            <svg class="diagram-svg" viewBox="0 0 700 190">
+              <rect x="0" y="0" width="700" height="190" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+              <rect x="0" y="0" width="700" height="34" rx="8" fill="#f1f5f9"/>
+              <rect x="0" y="26" width="700" height="8" fill="#f1f5f9"/>
+              <circle cx="18" cy="17" r="5" fill="#f87171"/>
+              <circle cx="34" cy="17" r="5" fill="#fbbf24"/>
+              <circle cx="50" cy="17" r="5" fill="#34d399"/>
+              <rect x="75" y="7" width="360" height="20" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+              <text x="88" y="21" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">javdb.com/ ...</text>
+              <rect x="25" y="52" width="200" height="16" rx="3" fill="#e2e8f0"/>
+              <rect x="25" y="80" width="160" height="12" rx="3" fill="#f1f5f9"/>
+              <rect x="25" y="102" width="190" height="12" rx="3" fill="#f1f5f9"/>
+              <rect x="25" y="124" width="140" height="12" rx="3" fill="#f1f5f9"/>
+              <g transform="translate(260, 42)">
+                <rect x="0" y="0" width="220" height="136" rx="6" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+                <text x="14" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#334155">返回 / Back</text>
+                <text x="14" y="40" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#334155">重新加载 / Reload</text>
+                <text x="14" y="60" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#334155">另存为... / Save as...</text>
+                <line x1="8" y1="70" x2="212" y2="70" stroke="#e2e8f0" stroke-width="1"/>
+                <text x="14" y="88" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#334155">查看网页源代码 / View source</text>
+                <rect x="6" y="98" width="208" height="28" rx="4" fill="#fee2e2" stroke="#ef4444" stroke-width="2"/>
+                <text x="14" y="117" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" font-weight="bold" fill="#b91c1c">检查 / Inspect (或快捷键 F12)</text>
+              </g>
+              <g transform="translate(492, 142)">
+                <path d="M 0 10 L 14 0 L 14 20 Z" fill="#ef4444"/>
+                <rect x="14" y="-3" width="176" height="26" rx="4" fill="#ef4444"/>
+                <text x="22" y="14" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#ffffff">右键菜单选择「检查」</text>
+              </g>
+            </svg>
+            <div class="diagram-caption">示意图，菜单名以你的浏览器实际界面为准</div>
+          </div>
+        </li>
+        <li>
+          在开发者工具顶部切换到 <strong>Network（网络）</strong> 面板，筛选栏选择 <strong>All（全部）</strong> 或 <strong>Doc（文档）</strong>，然后按 <kbd>F5</kbd> 刷新当前网页。
+          <div class="diagram-container">
+            <svg class="diagram-svg" viewBox="0 0 700 180">
+              <rect x="0" y="0" width="700" height="180" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+              <rect x="0" y="0" width="700" height="36" rx="8" fill="#f8fafc"/>
+              <rect x="0" y="28" width="700" height="8" fill="#f8fafc"/>
+              <line x1="0" y1="36" x2="700" y2="36" stroke="#e2e8f0" stroke-width="1"/>
+              <text x="18" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">元素 / Elements</text>
+              <text x="125" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">控制台 / Console</text>
+              <text x="235" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">源代码 / Sources</text>
+              <rect x="345" y="5" width="135" height="26" rx="4" fill="#fee2e2" stroke="#ef4444" stroke-width="2"/>
+              <text x="357" y="22" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" font-weight="bold" fill="#b91c1c">网络 / Network</text>
+              <text x="498" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">应用 / Application</text>
+              <rect x="0" y="52" width="700" height="32" fill="#f1f5f9"/>
+              <line x1="0" y1="84" x2="700" y2="84" stroke="#e2e8f0" stroke-width="1"/>
+              <text x="18" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">筛选 / Filter</text>
+              <rect x="85" y="57" width="140" height="22" rx="3" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+              <rect x="245" y="57" width="46" height="22" rx="3" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+              <text x="254" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#b91c1c">全部</text>
+              <text x="305" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">Fetch/XHR</text>
+              <rect x="375" y="57" width="46" height="22" rx="3" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+              <text x="384" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#b91c1c">文档</text>
+              <text x="435" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">JS</text>
+              <text x="465" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">CSS</text>
+              <text x="500" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">Img</text>
+              <g transform="translate(18, 98)">
+                <rect x="0" y="0" width="664" height="66" rx="6" fill="#f8fafc" stroke="#cbd5e1" stroke-dasharray="4 2"/>
+                <circle cx="28" cy="33" r="14" fill="#3b82f6"/>
+                <text x="20" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" font-weight="bold" fill="#ffffff">F5</text>
+                <text x="52" y="27" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" font-weight="bold" fill="#0f172a">切换到 Network 面板并筛选“全部”或“文档”，然后按 F5 刷新网页</text>
+                <text x="52" y="47" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">按 F5 重新加载后，开发者工具才会完整记录该站点的首个主页面请求与请求标头</text>
+              </g>
+            </svg>
+            <div class="diagram-caption">示意图，菜单名以你的浏览器实际界面为准</div>
+          </div>
+        </li>
+        <li>
+          在请求列表顶部点击第一条主页面请求（通常与当前网页路径同名），在右侧详情区切换到 <strong>Headers（标头）</strong> → 展开 <strong>Request Headers（请求标头）</strong>，找到 <code>Cookie</code>（或 <code>cookie</code>）字段。
+          <div class="diagram-container">
+            <svg class="diagram-svg" viewBox="0 0 700 170">
+              <rect x="0" y="0" width="700" height="170" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+              <rect x="0" y="0" width="700" height="30" rx="8" fill="#f1f5f9"/>
+              <rect x="0" y="22" width="700" height="8" fill="#f1f5f9"/>
+              <line x1="0" y1="30" x2="700" y2="30" stroke="#e2e8f0" stroke-width="1"/>
+              <text x="18" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#475569">名称 / Name</text>
+              <text x="210" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#475569">状态 / Status</text>
+              <text x="290" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#475569">类型 / Type</text>
+              <text x="390" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#475569">发起程序 / Initiator</text>
+              <text x="520" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#475569">大小 / Size</text>
+              <text x="610" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#475569">时间 / Time</text>
+              <!-- Row 1 Selected -->
+              <rect x="4" y="34" width="692" height="34" rx="4" fill="#eff6ff" stroke="#ef4444" stroke-width="2"/>
+              <text x="18" y="55" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" font-weight="bold" fill="#1d4ed8">javdb.com （或对应站点主页面请求）</text>
+              <text x="210" y="55" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#16a34a">200</text>
+              <text x="290" y="55" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#0f172a">document</text>
+              <text x="390" y="55" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">other</text>
+              <text x="520" y="55" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">45.2 kB</text>
+              <text x="610" y="55" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">128 ms</text>
+              <!-- Row 2 -->
+              <rect x="0" y="72" width="700" height="28" fill="#ffffff"/>
+              <line x1="0" y1="100" x2="700" y2="100" stroke="#f1f5f9" stroke-width="1"/>
+              <text x="18" y="90" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">theme.css</text>
+              <text x="210" y="90" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#16a34a">200</text>
+              <text x="290" y="90" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">stylesheet</text>
+              <!-- Row 3 -->
+              <rect x="0" y="100" width="700" height="28" fill="#f8fafc"/>
+              <text x="18" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">main.bundle.js</text>
+              <text x="210" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#16a34a">200</text>
+              <text x="290" y="118" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">script</text>
+              <!-- Callout bottom -->
+              <g transform="translate(18, 136)">
+                <rect x="0" y="0" width="370" height="22" rx="4" fill="#ef4444"/>
+                <text x="10" y="15" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#ffffff">点击第一条主页面请求（通常类型为 document），右侧将展开详情</text>
+              </g>
+            </svg>
+            <div class="diagram-caption">示意图，菜单名以你的浏览器实际界面为准</div>
+          </div>
+        </li>
+        <li>
+          优先在 <code>Cookie</code>（或 <code>cookie</code>）这一行上点击鼠标右键，选择 <strong>复制值 / Copy value</strong>；如果右键菜单中没有该项，再手动框选该行对应的值文本并右键复制（或按 <kbd>Ctrl</kbd>/<kbd>⌘</kbd> + <kbd>C</kbd>）。注意菜单名以你的浏览器实际界面为准。
+          <div class="diagram-container">
+            <svg class="diagram-svg" viewBox="0 0 700 220">
+              <rect x="0" y="0" width="700" height="220" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+              <rect x="0" y="0" width="700" height="32" rx="8" fill="#f8fafc"/>
+              <rect x="0" y="24" width="700" height="8" fill="#f8fafc"/>
+              <line x1="0" y1="32" x2="700" y2="32" stroke="#e2e8f0" stroke-width="1"/>
+              <rect x="10" y="5" width="105" height="24" rx="4" fill="#dbeafe"/>
+              <text x="18" y="21" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" font-weight="bold" fill="#1d4ed8">标头 / Headers</text>
+              <text x="135" y="21" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">载荷 / Payload</text>
+              <text x="235" y="21" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">预览 / Preview</text>
+              <text x="335" y="21" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">响应 / Response</text>
+              <text x="18" y="54" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" font-weight="bold" fill="#0f172a">▼ 请求标头 / Request Headers</text>
+              <text x="28" y="74" font-family="ui-monospace, monospace" font-size="11" fill="#64748b">:authority: javdb.com</text>
+              <text x="28" y="92" font-family="ui-monospace, monospace" font-size="11" fill="#64748b">accept: text/html,application/xhtml+xml...</text>
+              <!-- Highlighted Cookie Row -->
+              <rect x="18" y="102" width="440" height="30" rx="4" fill="#fee2e2" stroke="#ef4444" stroke-width="1.5"/>
+              <text x="26" y="121" font-family="ui-monospace, monospace" font-size="12" font-weight="bold" fill="#b91c1c">cookie: </text>
+              <text x="82" y="121" font-family="ui-monospace, monospace" font-size="11" fill="#334155">_jdb_session=ab12cd...; __cf_bm=xy78...; locale=zh</text>
+              <text x="28" y="148" font-family="ui-monospace, monospace" font-size="11" fill="#64748b">user-agent: Mozilla/5.0 ...</text>
+              <!-- Context Menu -->
+              <g transform="translate(415, 85)">
+                <rect x="0" y="0" width="225" height="114" rx="6" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+                <text x="14" y="20" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#334155">复制名称 / Copy name</text>
+                <rect x="6" y="28" width="213" height="26" rx="4" fill="#fee2e2" stroke="#ef4444" stroke-width="2"/>
+                <text x="14" y="45" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" font-weight="bold" fill="#b91c1c">复制值 / Copy value</text>
+                <line x1="8" y1="62" x2="217" y2="62" stroke="#e2e8f0" stroke-width="1"/>
+                <text x="14" y="78" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#334155">展开全部 / Expand all</text>
+                <text x="14" y="98" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">隐藏标头 / Hide headers</text>
+              </g>
+              <g transform="translate(18, 168)">
+                <rect x="0" y="0" width="370" height="22" rx="4" fill="#ef4444"/>
+                <text x="10" y="15" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#ffffff">在 Cookie 一行右键点击，选择“复制值 / Copy value”</text>
+              </g>
+            </svg>
+            <div class="diagram-caption">示意图，菜单名以你的浏览器实际界面为准</div>
+          </div>
+        </li>
       </ol>
       <div class="notice">
         <strong>提示：</strong>优先使用右键菜单中的“复制值 / Copy value”可避免长 Cookie 在手动框选时光标截断或漏选字符。不同浏览器或语言版本的右键菜单名称可能略有差异，请以你的浏览器实际界面为准。
@@ -128,6 +296,54 @@
     <section class="card">
       <h2>二、粘贴到 MDCx 的哪个设置项</h2>
       <p style="margin-top: 0;">打开 MDCx 主界面，依次进入左侧导航栏「设置」页中的「网络」标签页，在「Cookie设置」分组中，根据站点将复制好的 Cookie 粘贴到对应输入框中：</p>
+      <div class="diagram-container">
+        <svg class="diagram-svg" viewBox="0 0 700 230">
+          <rect x="0" y="0" width="700" height="230" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+          <!-- Left Navigation Bar -->
+          <rect x="0" y="0" width="105" height="230" rx="8" fill="#f8fafc"/>
+          <rect x="97" y="0" width="8" height="230" fill="#f8fafc"/>
+          <line x1="105" y1="0" x2="105" y2="230" stroke="#e2e8f0" stroke-width="1"/>
+          <text x="35" y="38" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#64748b">整理</text>
+          <text x="35" y="72" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#64748b">刮削</text>
+          <rect x="8" y="88" width="89" height="32" rx="4" fill="#dbeafe"/>
+          <text x="28" y="109" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" font-weight="bold" fill="#1d4ed8">「设置」</text>
+          <text x="35" y="146" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" fill="#64748b">关于</text>
+          <!-- Top Settings Tabs -->
+          <rect x="105" y="0" width="595" height="36" fill="#f1f5f9"/>
+          <line x1="105" y1="36" x2="700" y2="36" stroke="#e2e8f0" stroke-width="1"/>
+          <text x="125" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">常规</text>
+          <text x="180" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">命名</text>
+          <text x="235" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">路径</text>
+          <rect x="290" y="5" width="75" height="27" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+          <text x="303" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" font-weight="bold" fill="#1d4ed8">「网络」</text>
+          <text x="385" y="23" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">翻译</text>
+          <!-- Group Box: Cookie设置 -->
+          <rect x="125" y="50" width="550" height="162" rx="6" fill="#fafafa" stroke="#cbd5e1" stroke-width="1"/>
+          <text x="140" y="70" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" font-weight="bold" fill="#0f172a">「Cookie设置」</text>
+          <!-- JavDB Row -->
+          <text x="140" y="103" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" font-weight="bold" fill="#334155">javdb:</text>
+          <rect x="190" y="86" width="340" height="28" rx="4" fill="#ffffff" stroke="#ef4444" stroke-width="2"/>
+          <text x="200" y="104" font-family="ui-monospace, monospace" font-size="11" fill="#0f172a">_jdb_session=ab12cd...; __cf_bm=xy78... (粘贴于此)</text>
+          <rect x="540" y="86" width="120" height="28" rx="4" fill="#fee2e2" stroke="#ef4444" stroke-width="2"/>
+          <text x="552" y="104" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" font-weight="bold" fill="#b91c1c">「检查cookie」</text>
+          <!-- JavBus Row -->
+          <text x="140" y="142" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">javbus:</text>
+          <rect x="190" y="126" width="340" height="26" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+          <rect x="540" y="126" width="120" height="26" rx="4" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+          <text x="560" y="143" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">检查cookie</text>
+          <!-- FC2 Row -->
+          <text x="140" y="180" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">fc2ppvdb:</text>
+          <rect x="190" y="164" width="340" height="26" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+          <rect x="540" y="164" width="120" height="26" rx="4" fill="#f1f5f9" stroke="#cbd5e1" stroke-width="1"/>
+          <text x="560" y="181" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="11" fill="#64748b">检查cookie</text>
+          <!-- Callout tags -->
+          <rect x="235" y="117" width="150" height="18" rx="3" fill="#ef4444"/>
+          <text x="241" y="130" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="10" font-weight="bold" fill="#ffffff">① 粘贴复制的 Cookie</text>
+          <rect x="536" y="117" width="128" height="18" rx="3" fill="#ef4444"/>
+          <text x="541" y="130" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="10" font-weight="bold" fill="#ffffff">② 点击「检查cookie」</text>
+        </svg>
+        <div class="diagram-caption">示意图，菜单名以你的浏览器实际界面为准</div>
+      </div>
       <table>
         <thead>
           <tr>
@@ -160,6 +376,24 @@
           <li>点击「检查cookie」仅用于测试当前输入框内的 Cookie 是否有效；测试通过后请点击界面右下角的 <strong>「保存」</strong> 使其正式生效。</li>
           <li>Cookie 具有有效期，当日志提示 Cookie 失效或再次触发登录跳转时，请按上述步骤重新获取并更新。</li>
         </ul>
+      </div>
+      <div class="diagram-container">
+        <svg class="diagram-svg" viewBox="0 0 700 120">
+          <rect x="0" y="0" width="700" height="120" rx="8" fill="#ffffff" stroke="#cbd5e1" stroke-width="1.5"/>
+          <rect x="18" y="14" width="664" height="30" rx="4" fill="#f0fdf4" stroke="#86efac" stroke-width="1"/>
+          <circle cx="34" cy="29" r="6" fill="#22c55e"/>
+          <text x="31" y="33" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="9" font-weight="bold" fill="#ffffff">✓</text>
+          <text x="48" y="33" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#15803d">javdb: cookie验证成功！</text>
+          <line x1="0" y1="58" x2="700" y2="58" stroke="#e2e8f0" stroke-width="1"/>
+          <rect x="0" y="59" width="700" height="61" rx="8" fill="#f8fafc"/>
+          <text x="24" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#64748b">测试通过后，必须点击右下角保存按钮使配置正式生效 ➔</text>
+          <rect x="470" y="72" width="90" height="34" rx="4" fill="#ffffff" stroke="#cbd5e1" stroke-width="1"/>
+          <text x="492" y="93" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="12" fill="#475569">恢复默认</text>
+          <rect x="575" y="70" width="105" height="38" rx="4" fill="#2563eb" stroke="#ef4444" stroke-width="2.5"/>
+          <text x="610" y="94" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif" font-size="13" font-weight="bold" fill="#ffffff">「保存」</text>
+          <path d="M 552 89 L 570 83 L 570 95 Z" fill="#ef4444"/>
+        </svg>
+        <div class="diagram-caption">示意图，菜单名以你的浏览器实际界面为准</div>
       </div>
     </section>
   </div>
