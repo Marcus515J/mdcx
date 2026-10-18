@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: 1a02cd21a1eca350f5a8aed0a6a8c5c89e5b96ba
+          ref: 3984e3a5cfcb7e0b6aaf30f63a128b6a4c9dc76e
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
         with:
@@ -43,12 +43,12 @@ jobs:
         shell: bash
         run: |
           mkdir -p test-assets
-          cp dist/MDCx.exe "test-assets/MDCx-$BUILD_VERSION-TEST-1a02cd2-windows-x86_64.exe"
+          cp dist/MDCx.exe "test-assets/MDCx-$BUILD_VERSION-TEST-3984e3a-windows-x86_64.exe"
           cd test-assets
           sha256sum *.exe > SHA256SUMS.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: windows-x86_64-test-1a02cd2
+          name: windows-x86_64-test-3984e3a
           path: test-assets/*
           if-no-files-found: error
           retention-days: 14
