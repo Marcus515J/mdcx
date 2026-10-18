@@ -1,5 +1,7 @@
 # PyQt6 迁移方案
 
+> 历史记录：迁移已完成或为当时计划，现状以代码为准。
+
 ## 背景
 
 当前桌面端使用 PyQt5/Qt5，主要入口和 UI 代码分布在 `main.py`、`mdcx/views`、`mdcx/controllers`、`mdcx/signals.py`、`mdcx/image.py`、`mdcx/config/resources.py` 和少量核心流程弹窗中。迁移到 PyQt6 的目标不是简单替换包名，而是在保持现有业务行为稳定的前提下，接入 Qt6 的高 DPI、主题和更严格 API 体系，为后续界面体验优化打基础。

@@ -1,7 +1,7 @@
 import re
 from typing import Any
 
-from .enums import CleanAction, DownloadableFile, HDPicSource, Website
+from .enums import CleanAction, DownloadableFile, HDPicSource, Translator, Website
 
 CURRENT_CONFIG_VERSION = 2
 
@@ -217,12 +217,26 @@ def migrate_config_data(data: dict[str, Any]) -> list[str]:
         ]
 
     if isinstance(translate_config := data.get("translate_config"), dict):
+        for removed_key in ("baidu_appid", "baidu_key", "deepl_key", "deeplx_url"):
+            translate_config.pop(removed_key, None)
         old_prompt = translate_config.pop("llm_prompt", None)
         if isinstance(old_prompt, str):
             translate_config.setdefault("llm_prompt_title", old_prompt)
             translate_config.setdefault("llm_prompt_outline", old_prompt)
-        if isinstance(translate_by := translate_config.get("translate_by"), list):
-            translate_config["translate_by"] = [item for item in translate_by if item != "youdao"]
+        if "translate_by" in translate_config:
+            raw_translate_by = translate_config.get("translate_by")
+            if isinstance(raw_translate_by, str):
+                raw_translate_by = _str_to_list(raw_translate_by, ",")
+            if isinstance(raw_translate_by, list):
+                kept = [
+                    Translator.LLM.value for item in raw_translate_by if item in (Translator.LLM, Translator.LLM.value)
+                ]
+                if kept:
+                    translate_config["translate_by"] = kept
+                else:
+                    translate_config["translate_by"] = [Translator.LLM.value]
+            else:
+                translate_config["translate_by"] = [Translator.LLM.value]
     if isinstance(old_prompt := data.get("llm_prompt"), str):
         translate_config = data.setdefault("translate_config", {})
         if isinstance(translate_config, dict):

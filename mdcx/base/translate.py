@@ -1,11 +1,6 @@
 import asyncio
-import hashlib
-import random
 import re
-import time
 from dataclasses import dataclass
-from typing import Literal, cast
-from urllib.parse import quote
 
 from httpx import Timeout
 
@@ -14,7 +9,19 @@ from ..config.manager import manager
 from ..config.models import Translator
 from ..llm import LLMClient, is_loopback_url
 from ..signals import signal
-from ..utils.language import is_probably_english_for_translation
+
+
+def format_translator_label(
+    translator: Translator | str = Translator.LLM,
+    interface: str = "",
+    model: str = "",
+) -> str:
+    if not interface:
+        tc = manager.config.translate_config
+        interface = "本机主模型" if is_loopback_url(str(tc.llm_url)) else "云端主模型"
+        model = model or tc.llm_model
+    model_str = model.strip() if model else ""
+    return f"LLM·{interface} {model_str}".rstrip()
 
 
 @dataclass(slots=True)
@@ -25,6 +32,44 @@ class TranslateResult:
     engine: Translator
     translated_title: bool = False
     translated_outline: bool = False
+    interface: str = ""
+    model: str = ""
+    fallback_used: bool = False
+    title_interface: str = ""
+    title_model: str = ""
+    title_fallback: bool = False
+    outline_interface: str = ""
+    outline_model: str = ""
+    outline_fallback: bool = False
+    requested_title: bool = False
+    requested_outline: bool = False
+    title_field_name: str = "标题"
+    outline_field_name: str = "简介"
+
+    @property
+    def label(self) -> str:
+        t_label = (
+            format_translator_label(self.engine, self.title_interface, self.title_model)
+            if self.requested_title and self.title_interface
+            else ""
+        )
+        o_label = (
+            format_translator_label(self.engine, self.outline_interface, self.outline_model)
+            if self.requested_outline and self.outline_interface
+            else ""
+        )
+
+        if self.requested_title and self.requested_outline:
+            if t_label == o_label:
+                return t_label
+            t_name = self.title_field_name or "标题"
+            o_name = self.outline_field_name or "简介"
+            return f"{t_name} {t_label}；{o_name} {o_label}"
+        if self.requested_title and not self.requested_outline:
+            return t_label
+        if self.requested_outline and not self.requested_title:
+            return o_label
+        return format_translator_label(self.engine, self.interface, self.model)
 
     @property
     def success(self) -> bool:
@@ -42,6 +87,19 @@ def _build_translate_result(
     title: str,
     outline: str,
     error: str | None,
+    interface: str = "",
+    model: str = "",
+    fallback_used: bool = False,
+    title_interface: str = "",
+    title_model: str = "",
+    title_fallback: bool = False,
+    outline_interface: str = "",
+    outline_model: str = "",
+    outline_fallback: bool = False,
+    requested_title: bool = False,
+    requested_outline: bool = False,
+    title_field_name: str = "标题",
+    outline_field_name: str = "简介",
 ) -> TranslateResult:
     translated_title = _has_effective_translation(source_title, title)
     translated_outline = _has_effective_translation(source_outline, outline)
@@ -54,15 +112,20 @@ def _build_translate_result(
         engine=engine,
         translated_title=translated_title,
         translated_outline=translated_outline,
+        interface=interface,
+        model=model,
+        fallback_used=fallback_used,
+        title_interface=title_interface,
+        title_model=title_model,
+        title_fallback=title_fallback,
+        outline_interface=outline_interface,
+        outline_model=outline_model,
+        outline_fallback=outline_fallback,
+        requested_title=requested_title,
+        requested_outline=requested_outline,
+        title_field_name=title_field_name,
+        outline_field_name=outline_field_name,
     )
-
-
-def _get_deepl_source_language(text: str) -> Literal["JA", "EN"]:
-    return "EN" if is_probably_english_for_translation(text) else "JA"
-
-
-def _is_chinese_target(language: Language | str) -> bool:
-    return language in (Language.ZH_CN, Language.ZH_CN.value, Language.ZH_TW, Language.ZH_TW.value)
 
 
 def get_llm_target_language(language: Language | str) -> str:
@@ -75,80 +138,6 @@ def get_llm_target_language(language: Language | str) -> str:
     if language == Language.JP or language == Language.JP.value:
         return "日本語"
     return "简体中文"
-
-
-async def _deepl_translate(text: str, source_lang: Literal["JA", "EN"] = "JA") -> str | None:
-    """调用 DeepL API 翻译文本"""
-    if not text:
-        return ""
-
-    deepl_key = manager.config.translate_config.deepl_key.strip()
-    if not deepl_key:
-        return None
-
-    # 确定 API URL, 免费版本的 key 包含 ":fx" 后缀，付费版本的 key 不包含 ":fx" 后缀
-    deepl_url = "https://api-free.deepl.com" if ":fx" in deepl_key else "https://api.deepl.com"
-    url = f"{deepl_url}/v2/translate"
-    # 构造请求头
-    headers = {"Content-Type": "application/json", "Authorization": f"DeepL-Auth-Key {deepl_key}"}
-    # 构造请求体
-    data = {
-        "text": [text],
-        "source_lang": source_lang,
-        "target_lang": "ZH",
-        "model_type": "quality_optimized",
-    }
-    async with manager.acquire_computed() as computed:
-        res, error = await computed.async_client.post_json(url, json_data=data, headers=headers)
-    if res is None:
-        signal.add_log(f"DeepL API 请求失败: {error}")
-        return None
-    if "translations" in res and len(res["translations"]) > 0:
-        return res["translations"][0]["text"]
-    else:
-        signal.add_log(f"DeepL API 返回数据异常: {res}")
-        return None
-
-
-async def deepl_translate(title: str, outline: str, ls: Literal["JA", "EN"] = "JA"):
-    """DeepL 翻译接口"""
-    r1, r2 = await asyncio.gather(_deepl_translate(title, ls), _deepl_translate(outline, ls))
-    if r1 is None or r2 is None:
-        return "", "", "DeepL 翻译失败! 查看网络日志以获取更多信息"
-    return r1, r2, None
-
-
-async def _deeplx_translate(text: str, source_lang: Literal["JA", "EN"] = "JA") -> str | None:
-    """调用 DeepLX URL 翻译文本"""
-    if not text:
-        return ""
-
-    deeplx_url = manager.config.translate_config.deeplx_url.strip()
-    if not deeplx_url:
-        return None
-
-    url = f"{deeplx_url.rstrip('/')}"
-    headers = {"Content-Type": "application/json"}
-    data = {"text": text, "source_lang": source_lang, "target_lang": "ZH"}
-
-    async with manager.acquire_computed() as computed:
-        res, error = await computed.async_client.post_json(url, json_data=data, headers=headers)
-    if res is None:
-        signal.add_log(f"DeepLX API 请求失败: {error}")
-        return None
-    if "data" in res:
-        return res["data"]  # 直接返回字符串
-    else:
-        signal.add_log(f"DeepLX API 返回数据异常: {res}")
-        return None
-
-
-async def deeplx_translate(title: str, outline: str, ls: Literal["JA", "EN"] = "JA"):
-    """DeepLX 翻译接口"""
-    r1, r2 = await asyncio.gather(_deeplx_translate(title, ls), _deeplx_translate(outline, ls))
-    if r1 is None or r2 is None:
-        return "", "", "DeepLX 翻译失败! 查看网络日志以获取更多信息"
-    return r1, r2, None
 
 
 def _normalize_translated_linebreaks(text: str) -> str:
@@ -165,17 +154,32 @@ def _is_llm_refusal(text: str, prefixes: list[str]) -> bool:
     return any(prefix.strip() and opening.startswith(prefix.strip().casefold()) for prefix in prefixes)
 
 
-async def _llm_translate(text: str, prompt_template: str, target_language: str = "简体中文") -> str | None:
+async def _llm_translate(
+    text: str,
+    prompt_template: str,
+    target_language: str = "简体中文",
+    details: dict | None = None,
+    field_name: str = "",
+) -> str | None:
     """Retry refusals and unavailable results, then fallback or preserve the source."""
     if not text:
         return ""
     cfg = manager.config
     tc = cfg.translate_config
+    primary_is_local = is_loopback_url(str(tc.llm_url))
+    primary_interface = "本机主模型" if primary_is_local else "云端主模型"
+    primary_model = tc.llm_model.strip()
+
+    if details is not None:
+        details["interface"] = primary_interface
+        details["model"] = primary_model
+        details["fallback"] = False
+
     request = {
         "system_prompt": "You are a professional translator.",
         "user_prompt": prompt_template.replace("{content}", text).replace("{lang}", target_language),
         "temperature": tc.llm_temperature,
-        "max_try": 1 if is_loopback_url(str(tc.llm_url)) else tc.llm_max_try,
+        "max_try": 1 if primary_is_local else tc.llm_max_try,
         "log_fn": signal.add_log,
     }
     async with manager.acquire_computed() as computed:
@@ -203,7 +207,20 @@ async def _llm_translate(text: str, prompt_template: str, target_language: str =
             and tc.llm_fallback_model.strip()
             and (tc.llm_fallback_key.strip() or is_loopback_url(str(tc.llm_fallback_url)))
         ):
-            signal.add_log("🔄 换备用模型")
+            fallback_is_local = is_loopback_url(str(tc.llm_fallback_url))
+            fallback_interface = "本机备用" if fallback_is_local else "备用接口"
+            fallback_model = tc.llm_fallback_model.strip()
+            switch_dest = "转本机备用" if fallback_is_local else "转备用接口"
+            field_prefix = f"{field_name}：" if field_name else ""
+            switch_msg = f"{field_prefix}主模型失败，{switch_dest}"
+            signal.add_log(switch_msg)
+
+            if details is not None:
+                details["interface"] = fallback_interface
+                details["model"] = fallback_model
+                details["fallback"] = True
+                details["switch_msg"] = switch_msg
+
             fallback = LLMClient(
                 api_key=tc.llm_fallback_key,
                 base_url=tc.llm_fallback_url.unicode_string(),
@@ -234,8 +251,8 @@ async def _llm_translate(text: str, prompt_template: str, target_language: str =
 async def llm_translate(title: str, outline: str, target_language: str = "简体中文"):
     translate_config = manager.config.translate_config
     r1, r2 = await asyncio.gather(
-        _llm_translate(title, translate_config.llm_prompt_title, target_language),
-        _llm_translate(outline, translate_config.llm_prompt_outline, target_language),
+        _llm_translate(title, translate_config.llm_prompt_title, target_language, field_name="标题"),
+        _llm_translate(outline, translate_config.llm_prompt_outline, target_language, field_name="简介"),
     )
     if r1 is None or r2 is None:
         return "", "", "LLM 翻译失败! 查看网络日志以获取更多信息"
@@ -249,82 +266,79 @@ async def translate_with_engine(
     *,
     title_language: Language | str,
     outline_language: Language | str,
+    title_field_name: str = "标题",
+    outline_field_name: str = "简介",
 ) -> TranslateResult:
-    if engine == Translator.LLM:
-        title_result, outline_result = await asyncio.gather(
-            _llm_translate(
-                title, manager.config.translate_config.llm_prompt_title, get_llm_target_language(title_language)
-            ),
-            _llm_translate(
-                outline,
-                manager.config.translate_config.llm_prompt_outline,
-                get_llm_target_language(outline_language),
-            ),
-        )
-        error = "LLM 翻译失败! 查看网络日志以获取更多信息" if title_result is None or outline_result is None else None
-        result = _build_translate_result(engine, title, outline, title_result or "", outline_result or "", error)
-        # A preserved source is a completed refusal fallback, including when both fields are preserved.
-        # Stop other translation engines from replacing these fields; flags remain False for the source.
-        if error is None:
-            result.error = None
-        return result
+    title_details = {}
+    outline_details = {}
+    has_title_req = bool(title)
+    has_outline_req = bool(outline)
 
-    if engine == Translator.BAIDU:
-        title_result, outline_result, error = await baidu_translate(
+    t_field_name = title_field_name if (has_title_req and has_outline_req) or title_field_name == "标题" else ""
+    o_field_name = outline_field_name if (has_title_req and has_outline_req) or outline_field_name == "简介" else ""
+
+    title_result, outline_result = await asyncio.gather(
+        _llm_translate(
             title,
+            manager.config.translate_config.llm_prompt_title,
+            get_llm_target_language(title_language),
+            details=title_details,
+            field_name=t_field_name,
+        ),
+        _llm_translate(
             outline,
-            get_baidu_target_language(title_language),
-            get_baidu_target_language(outline_language),
-        )
-        return _build_translate_result(engine, title, outline, title_result, outline_result, error)
+            manager.config.translate_config.llm_prompt_outline,
+            get_llm_target_language(outline_language),
+            details=outline_details,
+            field_name=o_field_name,
+        ),
+    )
+    tc = manager.config.translate_config
+    default_interface = "本机主模型" if is_loopback_url(str(tc.llm_url)) else "云端主模型"
+    default_model = tc.llm_model.strip()
 
-    if engine == Translator.DEEPL:
-        if (title and not _is_chinese_target(title_language)) or (outline and not _is_chinese_target(outline_language)):
-            return _build_translate_result(engine, title, outline, "", "", "DeepL 当前仅支持中文目标语言")
-        title_result, outline_result = await asyncio.gather(
-            _deepl_translate(title, _get_deepl_source_language(title)),
-            _deepl_translate(outline, _get_deepl_source_language(outline)),
-        )
-        error = "DeepL 翻译失败! 查看网络日志以获取更多信息" if title_result is None or outline_result is None else None
-        return _build_translate_result(engine, title, outline, title_result or "", outline_result or "", error)
+    title_interface = title_details.get("interface", default_interface)
+    title_model = title_details.get("model", default_model)
+    title_fallback = bool(title_details.get("fallback"))
 
-    if engine == Translator.DEEPLX:
-        if (title and not _is_chinese_target(title_language)) or (outline and not _is_chinese_target(outline_language)):
-            return _build_translate_result(engine, title, outline, "", "", "DeepLX 当前仅支持中文目标语言")
-        title_result, outline_result = await asyncio.gather(
-            _deeplx_translate(title, _get_deepl_source_language(title)),
-            _deeplx_translate(outline, _get_deepl_source_language(outline)),
-        )
-        error = (
-            "DeepLX 翻译失败! 查看网络日志以获取更多信息" if title_result is None or outline_result is None else None
-        )
-        return _build_translate_result(engine, title, outline, title_result or "", outline_result or "", error)
+    outline_interface = outline_details.get("interface", default_interface)
+    outline_model = outline_details.get("model", default_model)
+    outline_fallback = bool(outline_details.get("fallback"))
 
-    if (title and not _is_chinese_target(title_language)) or (outline and not _is_chinese_target(outline_language)):
-        return _build_translate_result(engine, title, outline, "", "", "Google 当前仅支持中文目标语言")
-    title_result, outline_result, error = await google_translate(title, outline)
-    return _build_translate_result(engine, title, outline, title_result, outline_result, error)
+    fallback_used = title_fallback or outline_fallback
 
+    if fallback_used:
+        interface = outline_interface if outline_fallback else title_interface
+        model = outline_model if outline_fallback else title_model
+    else:
+        interface = title_interface if has_title_req else outline_interface
+        model = title_model if has_title_req else outline_model
 
-async def _google_translate(msg: str) -> tuple[str | None, str]:
-    if not msg:
-        return "", ""
-    msg_unquote = quote(msg)
-    url = f"https://translate.google.com/translate_a/single?client=gtx&sl=auto&tl=zh-CN&dt=t&q={msg_unquote}"
-    async with manager.acquire_computed() as computed:
-        response, error = await computed.async_client.get_json(url)
-    if response is None:
-        return None, error
-    translated = "".join([sen[0] for sen in response[0]])
-    translated = translated.replace("＃", "#")
-    return translated, ""
-
-
-async def google_translate(title: str, outline: str) -> tuple[str, str, str | None]:
-    (r1, e1), (r2, e2) = await asyncio.gather(_google_translate(title), _google_translate(outline))
-    if r1 is None or r2 is None:
-        return "", "", f"google 翻译失败! {e1} {e2}"
-    return r1, r2, None
+    error = "LLM 翻译失败! 查看网络日志以获取更多信息" if title_result is None or outline_result is None else None
+    result = _build_translate_result(
+        engine,
+        title,
+        outline,
+        title_result or "",
+        outline_result or "",
+        error,
+        interface=interface,
+        model=model,
+        fallback_used=fallback_used,
+        title_interface=title_interface,
+        title_model=title_model,
+        title_fallback=title_fallback,
+        outline_interface=outline_interface,
+        outline_model=outline_model,
+        outline_fallback=outline_fallback,
+        requested_title=has_title_req,
+        requested_outline=has_outline_req,
+        title_field_name=title_field_name,
+        outline_field_name=outline_field_name,
+    )
+    if error is None:
+        result.error = None
+    return result
 
 
 def get_translator_skip_reason(translator: Translator) -> str | None:
@@ -336,105 +350,9 @@ def get_translator_skip_reason(translator: Translator) -> str | None:
             return None
         return f"{'、'.join(missing)} 未配置"
 
-    if translator == Translator.BAIDU:
-        return _missing_reason([("APP ID", translate_config.baidu_appid), ("密钥", translate_config.baidu_key)])
-    if translator == Translator.DEEPL:
-        return _missing_reason([("DeepL API Key", translate_config.deepl_key)])
-    if translator == Translator.DEEPLX:
-        return _missing_reason([("DeepLX URL", translate_config.deeplx_url)])
     if translator == Translator.LLM:
         fields = [("LLM Model", translate_config.llm_model)]
         if not is_loopback_url(str(translate_config.llm_url)):
             fields.append(("LLM API Key", translate_config.llm_key))
         return _missing_reason(fields)
     return None
-
-
-def get_baidu_target_language(language: Language | str) -> str:
-    if language == Language.ZH_CN or language == Language.ZH_CN.value:
-        return "zh"
-    if language == Language.ZH_TW or language == Language.ZH_TW.value:
-        return "zh"
-    if language == Language.EN or language == Language.EN.value:
-        return "en"
-    if language == Language.JP or language == Language.JP.value:
-        return "jp"
-    return "zh"
-
-
-async def _baidu_translate_message(msg: str, target_lang: str) -> tuple[list[str] | None, str]:
-    if not msg:
-        return [], ""
-
-    translate_config = manager.config.translate_config
-    salt = str(int(time.time() * 1000)) + str(random.randint(0, 9))
-    sign = hashlib.md5(f"{translate_config.baidu_appid}{msg}{salt}{translate_config.baidu_key}".encode()).hexdigest()
-    data = {
-        "q": msg,
-        "from": "auto",
-        "to": target_lang,
-        "appid": translate_config.baidu_appid,
-        "salt": salt,
-        "sign": sign,
-    }
-    async with manager.acquire_computed() as computed:
-        response, error = await computed.async_client.post_json(
-            "https://fanyi-api.baidu.com/api/trans/vip/translate",
-            data=data,
-        )
-    if response is None:
-        return None, f"百度翻译请求失败: {error}"
-
-    response = cast("dict", response)
-    if error_code := response.get("error_code"):
-        error_msg = response.get("error_msg", "")
-        return None, f"百度翻译失败! {error_code} {error_msg}".strip()
-
-    trans_result = response.get("trans_result")
-    if not trans_result:
-        return None, f"百度翻译返回数据异常: {response}"
-
-    return [str(item.get("dst", "")) for item in trans_result], ""
-
-
-def _merge_baidu_result(lines: list[str], title: str, outline: str) -> tuple[str, str]:
-    title_result = title
-    outline_result = outline
-
-    if title:
-        title_result = lines[0] if lines else title
-        if outline:
-            outline_result = "\n".join(lines[1:]).strip("\n")
-    elif outline:
-        outline_result = "\n".join(lines).strip("\n")
-
-    return title_result, outline_result
-
-
-async def baidu_translate(
-    title: str,
-    outline: str,
-    title_target_lang: str = "zh",
-    outline_target_lang: str = "zh",
-) -> tuple[str, str, str | None]:
-    if not title and not outline:
-        return "", "", None
-
-    if title_target_lang == outline_target_lang:
-        msg = f"{title}\n{outline}" if title and outline else title or outline
-        lines, error = await _baidu_translate_message(msg, title_target_lang)
-        if lines is None:
-            return "", "", error
-        title_result, outline_result = _merge_baidu_result(lines, title, outline)
-        return title_result, outline_result, None
-
-    (title_lines, title_error), (outline_lines, outline_error) = await asyncio.gather(
-        _baidu_translate_message(title, title_target_lang),
-        _baidu_translate_message(outline, outline_target_lang),
-    )
-    if title_lines is None or outline_lines is None:
-        return "", "", " ".join(filter(None, [title_error, outline_error]))
-
-    title_result = "\n".join(title_lines).strip("\n") if title else ""
-    outline_result = "\n".join(outline_lines).strip("\n") if outline else ""
-    return title_result, outline_result, None

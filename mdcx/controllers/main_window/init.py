@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import QAbstractItemView, QComboBox, QListView, QMenu, QSys
 
 from mdcx.config.extend import get_movie_path_setting
 from mdcx.config.resources import resources
-from mdcx.consts import GITHUB_RELEASES_URL, IS_WINDOWS
+from mdcx.consts import GITHUB_RESOURCES_RELEASES_URL, IS_WINDOWS
 from mdcx.crawlers import get_registered_crawler_site_values
 from mdcx.models.flags import Flags
 from mdcx.signals import signal_qt
@@ -269,17 +269,19 @@ def Init_Singal(self: "MyMAinWindow"):
     def n(a): ...  # mousePressEvent 的返回值必须是 None, 用这个包装一下
 
     self.Ui.label_download_actor_zip.mousePressEvent = lambda ev: n(
-        webbrowser.open("https://github.com/moyy996/AVDC/releases/tag/%E5%A4%B4%E5%83%8F%E5%8C%85-2")
+        webbrowser.open(f"{GITHUB_RESOURCES_RELEASES_URL}/tag/actor-photos")
     )
     self.Ui.label_download_sub_zip.mousePressEvent = lambda ev: n(
-        webbrowser.open("https://www.dropbox.com/sh/vkbxawm6mwmwswr/AADqZiF8aUHmK6qIc7JSlURIa")
+        webbrowser.open(f"{GITHUB_RESOURCES_RELEASES_URL}/tag/subtitles")
     )
     self.Ui.label_download_mark_zip.mousePressEvent = lambda ev: n(
-        webbrowser.open("https://www.dropbox.com/sh/vkbxawm6mwmwswr/AADqZiF8aUHmK6qIc7JSlURIa")
+        webbrowser.open(f"{GITHUB_RESOURCES_RELEASES_URL}/tag/watermarks")
     )
-    self.Ui.label_get_cookie_url.mousePressEvent = lambda ev: n(webbrowser.open("https://tieba.baidu.com/p/5492736764"))
+    self.Ui.label_get_cookie_url.mousePressEvent = lambda ev: n(
+        webbrowser.open(resources.cookie_help_path.resolve().as_uri())
+    )
     self.Ui.label_download_actor_db.mousePressEvent = lambda ev: n(
-        webbrowser.open(f"{GITHUB_RELEASES_URL}/tag/actor_info_database")
+        webbrowser.open(f"{GITHUB_RESOURCES_RELEASES_URL}/tag/actor-info-db")
     )
 
     # 日志窗口链接仅外部打开，避免 QTextBrowser 内部跳转导致日志页变空

@@ -372,3 +372,76 @@ def test_abnormal_exit_is_reported_and_invalid_paths_are_readable(service):
     state, message = manager.check()
     assert state == "failed" and "异常退出" in message
     assert manager.process is None and not manager.owned
+
+
+def test_rescan_switches_directory_and_clears_when_empty(tmp_path):
+    dir_a = tmp_path / "dir_a"
+    server_a, model_a = installation(dir_a, "model_a.gguf")
+    dir_b = tmp_path / "dir_b"
+    server_b, model_b = installation(dir_b, "model_b.gguf")
+    dir_empty = tmp_path / "dir_empty"
+    dir_empty.mkdir()
+
+    # 1. 先查 A
+    res_a = local.discover([str(dir_a)])
+    assert res_a.servers == [server_a]
+    assert res_a.models == [model_a]
+
+    # 2. 改成 B 后重新查找，即使传入 A 旧路径，结果也全部来自 B
+    res_b = local.discover([str(dir_b)], server_a, model_a, force=True)
+    assert res_b.servers == [server_b]
+    assert res_b.models == [model_b]
+    assert server_a not in res_b.servers
+    assert model_a not in res_b.models
+
+    # 3. B 为空时结果为空
+    res_empty = local.discover([str(dir_empty)], server_b, model_b, force=True)
+    assert res_empty.servers == []
+    assert res_empty.models == []
+
+
+def test_controller_rescan_clears_old_paths_and_handles_empty(tmp_path):
+    from types import SimpleNamespace
+
+    from PyQt6.QtWidgets import QApplication, QMainWindow, QVBoxLayout
+
+    from mdcx.controllers.main_window.local_model_settings import (
+        LocalModelController,
+        setup_local_model_controls,
+    )
+
+    _app = QApplication.instance() or QApplication([])
+    window = QMainWindow()
+    window.Ui = SimpleNamespace()
+    container = QVBoxLayout()
+    setup_local_model_controls(window, container)
+    controller = LocalModelController(window)
+
+    dir_a = tmp_path / "dir_a"
+    server_a, model_a = installation(dir_a, "model_a.gguf")
+    dir_b = tmp_path / "dir_b"
+    server_b, model_b = installation(dir_b, "model_b.gguf")
+    dir_empty = tmp_path / "dir_empty"
+    dir_empty.mkdir()
+
+    # 初始查 A 得到结果并反映在下拉框
+    controller._finished("find", local.Installation([server_a], [model_a]))
+    assert controller.ui.comboBox_hymt2_server.currentText() == server_a
+    assert controller.ui.comboBox_hymt2_model.currentText() == model_a
+
+    # 改成 B 后重新查找，两栏路径和候选全部切换为 B
+    res_b = local.discover([str(dir_b)], server_a, model_a, force=True)
+    controller._finished("find", res_b)
+    assert controller.ui.comboBox_hymt2_server.currentText() == server_b
+    assert controller.ui.comboBox_hymt2_model.currentText() == model_b
+
+    # 改成空目录重新查找，清空两栏并给出提示，不保留旧路径
+    res_empty = local.discover([str(dir_empty)], server_b, model_b, force=True)
+    controller._finished("find", res_empty)
+    assert controller.ui.comboBox_hymt2_server.currentText() == ""
+    assert controller.ui.comboBox_hymt2_model.currentText() == ""
+    assert controller.ui.comboBox_hymt2_server.count() == 0
+    assert controller.ui.comboBox_hymt2_model.count() == 0
+    assert "未在当前目录下找到服务程序或模型文件；已清空路径" in controller.ui.label_hymt2_status.text()
+
+    controller.shutdown()
