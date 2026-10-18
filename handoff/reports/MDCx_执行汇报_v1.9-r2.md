@@ -150,13 +150,78 @@ Resolved 106 packages in 26ms
 
 ---
 
-## 四、停下与等待指令
+## 四、批准指令与阶段 B 启动
 
-阶段 A 的全部返工要求（R1、R2、R3）已完全执行达标，机械核对与远端 CI 均已 100% 通过：
-- `uv.lock` 平台标记已恢复，版本号独立升级；
-- `README.md` 与界面使用说明中的过期版本号已更新/解耦；
-- `changelog.md` 已校准措辞；
-- PR #12 保持 Draft 状态，master 分支未变动，未打标签，未进入阶段 B。
+用户于 2026-10-18 17:29:38 在对话中明确发出指令：
+> 「批准发布 v1.1.1」
 
-**当前已按任务单要求在此停下。**  
-**等待用户在对话中明确回复「批准发布 v1.1.1」后，方可进入阶段 B（合并 PR #12、打标签、推送并发布 Release）。**
+执行方严格遵循任务单规范，正式进入阶段 B 执行合并、打标签与自动发布流程。
+
+---
+
+## 五、阶段 B：发布执行记录
+
+### 1. 合并与标签提交信息
+
+- **PR #12 操作**：通过 `gh pr ready 12` 移出草稿状态，并使用 squash 策略合并进 `master` 分支。
+- **合并提交标题**：`release: v1.1.1（LLM-only、资源仓库、Cookie 教程）(#12)`
+- **master 合并提交完整 SHA（40 位）**：
+  `5eb64efcf093dac25ddcc847528ededcbe6bbf7b`
+- **标签名称**：`v1.1.1`（带注释标签，注释内容：`MDCx v1.1.1`）
+- **标签对象 SHA（Tag Object SHA）**：
+  `3fc706f6f0dde199d69a9be8e85d60ad88708194`
+- **标签指向提交 SHA（Commit SHA）**：
+  `5eb64efcf093dac25ddcc847528ededcbe6bbf7b`
+
+---
+
+### 2. 工作流运行与结论
+
+- **工作流名称**：`Build and Release`（`.github/workflows/release.yml`）
+- **触发方式**：推送标签 `v1.1.1` 自动触发
+- **工作流运行链接**：
+  https://github.com/Marcus515J/mdcx/actions/runs/39115916384
+- **各 Job 执行耗时与结论**：
+  - `build (macos-latest, macos-aarch64, dmg)`：✓ 耗时 2m37s，成功完成 DMG 构建并上传构件
+  - `build (windows-latest, windows-x86_64, exe)`：✓ 耗时 2m7s，成功完成 EXE 构建并上传构件
+  - `publish`：✓ 耗时 23s，验证构件校验和、创建 Release 草稿、调用 `finalize-release.cjs` 成功转为正式发布并设为 latest
+- **工作流最终结论**：**`success`（全流程绿标通过）**
+
+---
+
+### 3. Release 附件清单（文件名、大小与 SHA256）
+
+附件与校验和经由官方发布的 `MDCx-v1.1.1-SHA256SUMS.txt` 及 GitHub API 双向核验一致：
+
+| 文件名 | 文件大小（字节 / 易读） | SHA256 校验和 |
+|---|---|---|
+| **`MDCx-v1.1.1-windows-x86_64.exe`** | 153,705,892 字节（146.58 MiB） | `144c5873bdc1ca74adb4d89c153533198a2ce40063d3724fe8da184ee8c45ae5` |
+| **`MDCx-v1.1.1-macos-aarch64.dmg`** | 128,600,664 字节（122.64 MiB） | `f52d5292e25f57979d815a56224e27af360f81ed1a82596f8bbf16847712b279` |
+| **`MDCx-v1.1.1-SHA256SUMS.txt`** | 193 字节 | `6f5059265177dfe9c8dfe1dac5e362bd071d601c74077e3331b9ba4c9131078a` |
+
+---
+
+### 4. `gh release list` 原样输出
+
+```
+TITLE        TYPE    TAG NAME  PUBLISHED             
+MDCx v1.1.1  Latest  v1.1.1    less than a minute ago
+MDCx v1.1.0          v1.1.0    about 5 days ago
+v1.0.2               v1.0.2    about 1 month ago
+v1.0.1               v1.0.1    about 1 month ago
+```
+
+**检查结果确认**：
+1. `MDCx v1.1.1` 已正式发布（非草稿、非预发布），且已被正确设置为 **`Latest`**。
+2. 历史发布的三个 Release（`v1.1.0`、`v1.0.2`、`v1.0.1`）均完整保留，内容未受任何改动或影响。
+3. Release 页面正文严格为 `changelog.md` 全文。
+
+---
+
+### 5. 功能分支清理确认请求
+
+按照任务单第 6 条规定：
+> 「删除 `feat/llm-only-and-resources` 分支前，先问用户。」
+
+目前功能分支 `feat/llm-only-and-resources`（本地及远端）仍完整保留，未进行删除。请确认是否需要删除该分支。
+
