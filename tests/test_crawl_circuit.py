@@ -86,7 +86,7 @@ async def test_empty_search_and_parser_failure_do_not_open_circuit():
 
 
 @pytest.mark.asyncio
-async def test_total_limit_cancels_http_and_opens_circuit():
+async def test_total_limit_cancels_http_without_opening_circuit():
     async with FakeBypassServer(log=lambda _: None) as server:
         server.scenarios["slow.test"] = Scenario(direct_status=200, direct_delay=0.5)
         client = server.client(cf_bypass_url="", site_total_timeout=0.1)
@@ -95,8 +95,11 @@ async def test_total_limit_cancels_http_and_opens_circuit():
         result = await crawler.run(crawl_input())
         assert 0.08 <= asyncio.get_running_loop().time() - start < 0.4
         assert isinstance(result.debug_info.error, TimeoutError)
-        await crawler.run(crawl_input("TWO"))
-        assert server.count("direct", "slow.test") == 1
+        assert not crawler._site_failure
+        server.scenarios["slow.test"].direct_delay = 0.0
+        res_two = await crawler.run(crawl_input("TWO"))
+        assert res_two.data is not None
+        assert server.count("direct", "slow.test") == 2
         await client.close()
 
 
@@ -109,8 +112,10 @@ async def test_budget_is_shared_by_languages_for_same_number():
         assert (await crawler.run(crawl_input())).data is not None
         alternate = crawl_input()
         alternate.language = Language.ZH_CN
-        assert (await crawler.run(alternate)).data is None
-        assert "超限" in crawler._site_failure
+        alt_res = await crawler.run(alternate)
+        assert alt_res.data is None
+        assert isinstance(alt_res.debug_info.error, TimeoutError)
+        assert not crawler._site_failure
         await client.close()
 
 

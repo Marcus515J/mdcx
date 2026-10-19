@@ -111,17 +111,20 @@ class GenericBaseCrawler[T: Context = Context](ABC):
         if budget.active == 0:
             budget.deadline = loop.time() + budget.remaining
         budget.active += 1
-        state = CrawlRequestState(is_blocked=lambda: bool(self._site_failure))
+        state = CrawlRequestState(
+            is_blocked=lambda: bool(self._site_failure),
+            budget=budget,
+        )
         token = crawl_request_state.set(state)
         try:
-            async with asyncio.timeout_at(budget.deadline):
+            async with asyncio.timeout_at(budget.deadline) as timeout_ctx:
+                state.timeout_ctx = timeout_ctx
                 data = await self._run(ctx)
             if data is None and state.request_failed:
                 self._open_circuit("允许的请求尝试已耗尽，未取得页面")
             return CrawlerResponse(data=data, debug_info=ctx.debug_info)
         except TimeoutError:
             reason = f"单站单番号总等待超限 ({total_timeout:g}s)，番号={input.number}"
-            self._open_circuit(reason)
             ctx.debug(reason)
             ctx.debug_info.error = TimeoutError(reason)
             return CrawlerResponse(debug_info=ctx.debug_info)

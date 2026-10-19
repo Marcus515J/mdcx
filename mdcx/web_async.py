@@ -50,9 +50,40 @@ class SiteCircuitOpen(Exception):
 class CrawlRequestState:
     is_blocked: Callable[[], bool]
     request_failed: bool = False
+    timeout_ctx: asyncio.Timeout | None = None
+    budget: Any = None
 
 
 crawl_request_state: ContextVar[CrawlRequestState | None] = ContextVar("crawl_request_state", default=None)
+
+
+def extend_crawl_timeout(seconds: float) -> None:
+    if seconds <= 0:
+        return
+    state = crawl_request_state.get()
+    if state is None:
+        return
+    budget = getattr(state, "budget", None)
+    if budget is not None:
+        budget.deadline += seconds
+        timeout_ctx = getattr(state, "timeout_ctx", None)
+        if timeout_ctx is not None:
+            timeout_ctx.reschedule(budget.deadline)
+
+
+@contextlib.asynccontextmanager
+async def exempt_crawl_timeout():
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        yield
+        return
+    start_time = loop.time()
+    try:
+        yield
+    finally:
+        elapsed = loop.time() - start_time
+        extend_crawl_timeout(elapsed)
 
 
 def _check_site_circuit() -> None:
@@ -384,6 +415,7 @@ class AsyncWebClient:
         self.cf_bypass_url = cf_bypass_url.strip().rstrip("/")
         self.cf_bypass_proxy = (cf_bypass_proxy or "").strip()
         self._cf_bypass_enabled = bool(self.cf_bypass_url)
+        self._cf_known_bypass_hosts: set[str] = set()
         self._cf_host_locks: dict[str, asyncio.Lock] = {}
         self._cf_force_refresh_locks: dict[str, asyncio.Lock] = {}
         self._cf_host_retry_semaphores: dict[str, asyncio.Semaphore] = {}
@@ -432,6 +464,9 @@ class AsyncWebClient:
         with self._lease_lock:
             if self._leases > 0:
                 self._leases -= 1
+            remaining = self._leases
+        if remaining == 0:
+            self._cf_known_bypass_hosts.clear()
         if self._close_requested:
             await self._close_if_idle()
 
@@ -468,6 +503,7 @@ class AsyncWebClient:
             return
         self._close_requested = True
         self._closed = True
+        self._cf_known_bypass_hosts.clear()
         await self._pool_manager.close()
 
     async def reset_connections(self, reason: str, *, pool_key: str | None = None) -> None:
@@ -1118,11 +1154,13 @@ class AsyncWebClient:
                     self._log(
                         f"⏳ [限流] {site_name} 返回 429，等待 {wait_seconds:g}s 后重试 ({retry_k}/{max_429_retries})"
                     )
-                    await asyncio.sleep(wait_seconds)
+                    async with exempt_crawl_timeout():
+                        await asyncio.sleep(wait_seconds)
 
                     try:
                         limiter = self.limiters.get("127.0.0.1")
-                        await limiter.acquire()
+                        async with exempt_crawl_timeout():
+                            await limiter.acquire()
                         response = await self._curl_request(
                             method=current_method,
                             url=mirror_url,
@@ -1274,7 +1312,9 @@ class AsyncWebClient:
         use_proxy: bool,
     ) -> tuple[Response | None, str]:
         lock = await self._get_cf_host_lock(host)
-        async with lock:
+        async with exempt_crawl_timeout():
+            await lock.acquire()
+        try:
             min_interval = self._get_cf_bypass_min_interval(host)
             while True:
                 now = time.monotonic()
@@ -1289,7 +1329,8 @@ class AsyncWebClient:
                 wait_seconds = min_interval - elapsed
                 if wait_seconds >= 0.2:
                     self._log_cf(f"🕒 bypass 冷却中 {wait_seconds:.2f}s，等待后继续", host)
-                await asyncio.sleep(wait_seconds)
+                async with exempt_crawl_timeout():
+                    await asyncio.sleep(wait_seconds)
 
             self._cf_last_bypass_attempt_at[host] = time.monotonic()
             error = ""
@@ -1379,9 +1420,12 @@ class AsyncWebClient:
                 if i < self._cf_bypass_retries - 1:
                     sleep_seconds = self._calc_retry_sleep_seconds(i, after_cf_bypass=True)
                     self._log_cf(f"⚠️ bypass 获取失败，{sleep_seconds:.2f}s 后重试: {error}", host)
-                    await asyncio.sleep(sleep_seconds)
+                    async with exempt_crawl_timeout():
+                        await asyncio.sleep(sleep_seconds)
 
             return None, error or "bypass HTML 获取失败"
+        finally:
+            lock.release()
 
     async def request(
         self,
@@ -1467,14 +1511,38 @@ class AsyncWebClient:
                 )
                 pool_key = HostPoolManager.key_for_request(url, request_proxy, fingerprint)
                 try:
-                    await limiter.acquire()
+                    async with exempt_crawl_timeout():
+                        await limiter.acquire()
                     req_headers = dict(prepared_headers)
                     req_cookies = self._merge_cookies(cookies)
-                    host_retry_semaphore = None
-                    if host and self._cf_host_challenge_hits.get(host, 0) > 0:
-                        host_retry_semaphore = await self._get_cf_host_retry_semaphore(host)
-                    if host_retry_semaphore is not None:
-                        async with host_retry_semaphore:
+
+                    direct_bypass = bool(
+                        enable_cf_bypass and self._cf_bypass_enabled and host and host in self._cf_known_bypass_hosts
+                    )
+
+                    if direct_bypass:
+                        bypass_needed = True
+                    else:
+                        host_retry_semaphore = None
+                        if host and self._cf_host_challenge_hits.get(host, 0) > 0:
+                            host_retry_semaphore = await self._get_cf_host_retry_semaphore(host)
+                        if host_retry_semaphore is not None:
+                            async with host_retry_semaphore:
+                                resp = await self._curl_request(
+                                    method=method,
+                                    url=url,
+                                    proxy=request_proxy,
+                                    fingerprint=fingerprint,
+                                    headers=req_headers,
+                                    cookies=req_cookies,
+                                    params=params,
+                                    data=data,
+                                    json=json_data,
+                                    timeout=timeout or not_set,
+                                    stream=stream,
+                                    allow_redirects=allow_redirects,
+                                )
+                        else:
                             resp = await self._curl_request(
                                 method=method,
                                 url=url,
@@ -1489,25 +1557,18 @@ class AsyncWebClient:
                                 stream=stream,
                                 allow_redirects=allow_redirects,
                             )
-                    else:
-                        resp = await self._curl_request(
-                            method=method,
-                            url=url,
-                            proxy=request_proxy,
-                            fingerprint=fingerprint,
-                            headers=req_headers,
-                            cookies=req_cookies,
-                            params=params,
-                            data=data,
-                            json=json_data,
-                            timeout=timeout or not_set,
-                            stream=stream,
-                            allow_redirects=allow_redirects,
-                        )
 
-                    if enable_cf_bypass and self._cf_bypass_enabled and host and self._is_cf_challenge_response(resp):
-                        self._log_cf(f"🛑 检测到 Cloudflare 挑战页: {method} {url}", host)
-                        self._cf_host_challenge_hits[host] = self._cf_host_challenge_hits.get(host, 0) + 1
+                        bypass_needed = bool(
+                            enable_cf_bypass
+                            and self._cf_bypass_enabled
+                            and host
+                            and self._is_cf_challenge_response(resp)
+                        )
+                        if bypass_needed:
+                            self._log_cf(f"🛑 检测到 Cloudflare 挑战页: {method} {url}", host)
+                            self._cf_host_challenge_hits[host] = self._cf_host_challenge_hits.get(host, 0) + 1
+
+                    if bypass_needed:
                         if bypass_round >= self._cf_request_bypass_rounds:
                             error_msg = f"Cloudflare 挑战页持续存在，bypass 已达上限 ({self._cf_request_bypass_rounds})"
                             retry = False
@@ -1550,6 +1611,9 @@ class AsyncWebClient:
                                         host,
                                     )
                                 else:
+                                    if host and host not in self._cf_known_bypass_hosts:
+                                        self._cf_known_bypass_hosts.add(host)
+                                        self._log(f"🛡️ [CF] {host} 已确认需要 bypass，本次运行后续请求直接走 bypass")
                                     self._log_cf(
                                         f"✅ bypass 成功（模式: {bypass_mode or 'unknown'}），直接使用 bypass 响应",
                                         host,
@@ -1632,7 +1696,8 @@ class AsyncWebClient:
                         sleep_seconds = self._calc_retry_sleep_seconds(attempt, after_cf_bypass=sleep_after_cf_bypass)
                         if sleep_after_cf_bypass and host:
                             self._log_cf(f"⏳ bypass 后退避 {sleep_seconds:.2f}s", host)
-                    await asyncio.sleep(sleep_seconds)
+                    async with exempt_crawl_timeout():
+                        await asyncio.sleep(sleep_seconds)
             self._record_crawl_failure(error_msg)
             return None, f"{method} {url} 失败: {error_msg}"
         except SiteCircuitOpen:
