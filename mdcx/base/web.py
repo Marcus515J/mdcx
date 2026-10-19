@@ -690,6 +690,9 @@ async def get_dmm_trailer(trailer_url: str) -> str:
     https://cc3001.dmm.co.jp/pv/xxxx/nima000704k.mp4
     """
 
+    if not manager.config.trailer_quality_probe:
+        return trailer_url
+
     # 旧格式：..._sm_w.mp4 / ..._dmb_h.mp4
     if matched := re.search(r"(.+)_([a-z0-9]+)_([a-z])\.mp4$", trailer_url, flags=re.IGNORECASE):
         base_url, quality_level, suffix_char = matched.groups()

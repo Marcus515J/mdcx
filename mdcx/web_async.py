@@ -46,12 +46,29 @@ class SiteCircuitOpen(Exception):
     pass
 
 
+BAN_RETRY_SLEEP_SECONDS = 15.0
+BAN_SITE_PAUSE_SECONDS = 60.0
+BAN_MAX_CONSECUTIVE_FAILURES = 3
+
+
+@dataclass
+class _SiteBanState:
+    failure_count: int = 0
+    pause_until: float = 0.0
+    last_failure_trigger_time: float = 0.0
+    circuit_open: bool = False
+    last_status_code: int = 403
+
+
 @dataclass
 class CrawlRequestState:
     is_blocked: Callable[[], bool]
     request_failed: bool = False
     timeout_ctx: asyncio.Timeout | None = None
     budget: Any = None
+    site_name: str = ""
+    open_circuit: Callable[[str], None] | None = None
+    is_ban_failure: bool = False
 
 
 crawl_request_state: ContextVar[CrawlRequestState | None] = ContextVar("crawl_request_state", default=None)
@@ -440,6 +457,10 @@ class AsyncWebClient:
         self._fingerprint_default_request_range = (120, 240)
         self._fingerprint_amazon_lifetime_range = (8 * 60.0, 18 * 60.0)
         self._fingerprint_amazon_request_range = (60, 140)
+        self._site_ban_states: dict[str, _SiteBanState] = {}
+        self._site_ban_lock = asyncio.Lock()
+        self._sleep: Callable[[float], Any] | None = None
+        self._time_fn: Callable[[], float] | None = None
 
     def _new_curl_session(self, fingerprint: BrowserFingerprint | None = None) -> AsyncSession:
         impersonate = (
@@ -467,6 +488,7 @@ class AsyncWebClient:
             remaining = self._leases
         if remaining == 0:
             self._cf_known_bypass_hosts.clear()
+            self._site_ban_states.clear()
         if self._close_requested:
             await self._close_if_idle()
 
@@ -504,6 +526,7 @@ class AsyncWebClient:
         self._close_requested = True
         self._closed = True
         self._cf_known_bypass_hosts.clear()
+        self._site_ban_states.clear()
         await self._pool_manager.close()
 
     async def reset_connections(self, reason: str, *, pool_key: str | None = None) -> None:
@@ -1050,6 +1073,109 @@ class AsyncWebClient:
             return True
         return False
 
+    def _is_cf_1015_response(self, response: Response | None) -> bool:
+        if response is None:
+            return False
+        if response.status_code not in (403, 429):
+            return False
+        try:
+            content = response.content[:8192].decode("utf-8", errors="ignore").lower()
+        except Exception:
+            return False
+        markers = (
+            "error 1015",
+            "error code: 1015",
+            "error code 1015",
+            "you are being rate limited",
+        )
+        return any(m in content for m in markers)
+
+    def _is_ban_response(self, response: Response | None) -> bool:
+        if response is None:
+            return False
+        if self._is_cf_challenge_response(response):
+            return False
+        if response.status_code == 403:
+            return True
+        if self._is_cf_1015_response(response):
+            return True
+        return False
+
+    def _resolve_site_key(self, host: str) -> str:
+        state = crawl_request_state.get()
+        if state and state.site_name:
+            return state.site_name
+        return host or "default"
+
+    def _is_site_circuit_open(self, site_key: str) -> bool:
+        state = crawl_request_state.get()
+        if state is not None and state.is_blocked():
+            return True
+        ban_state = self._site_ban_states.get(site_key)
+        if ban_state and ban_state.circuit_open:
+            return True
+        return False
+
+    def _get_time(self) -> float:
+        if self._time_fn is not None:
+            return self._time_fn()
+        return time.time()
+
+    async def _do_sleep(self, seconds: float) -> None:
+        if self._sleep is not None:
+            await self._sleep(seconds)
+        else:
+            await asyncio.sleep(seconds)
+
+    async def _wait_for_site_pause_if_needed(self, site_key: str) -> None:
+        while True:
+            if self._is_site_circuit_open(site_key):
+                raise SiteCircuitOpen(f"站点 {site_key} 已断路，本次运行不再请求")
+            ban_state = self._site_ban_states.get(site_key)
+            if not ban_state:
+                break
+            now = self._get_time()
+            wait_seconds = ban_state.pause_until - now
+            if wait_seconds <= 0:
+                break
+            async with exempt_crawl_timeout():
+                await self._do_sleep(wait_seconds)
+
+    async def _record_site_success(self, site_key: str) -> None:
+        async with self._site_ban_lock:
+            state = self._site_ban_states.get(site_key)
+            if state and state.failure_count > 0:
+                state.failure_count = 0
+                self._log(f"✅ [封禁] {site_key} 恢复正常，失败计数清零")
+
+    async def _record_site_ban_failure(self, site_key: str, *, status_code: int, request_start_time: float) -> None:
+        async with self._site_ban_lock:
+            state = self._site_ban_states.setdefault(site_key, _SiteBanState())
+            state.last_status_code = status_code
+            if state.circuit_open:
+                return
+            now = self._get_time()
+
+            if now < state.pause_until or request_start_time <= state.last_failure_trigger_time:
+                return
+
+            state.failure_count += 1
+            state.last_failure_trigger_time = now
+            state.pause_until = now + BAN_SITE_PAUSE_SECONDS
+
+            self._log(
+                f"⏸️ [封禁] {site_key} 第 {state.failure_count}/{int(BAN_MAX_CONSECUTIVE_FAILURES)} 次被拒，暂停该站 {int(BAN_SITE_PAUSE_SECONDS)}s"
+            )
+
+            if state.failure_count >= BAN_MAX_CONSECUTIVE_FAILURES:
+                state.circuit_open = True
+                req_state = crawl_request_state.get()
+                reason = f"连续 {int(BAN_MAX_CONSECUTIVE_FAILURES)} 部片被拒绝 ({status_code})，可能已被限制访问"
+                if req_state and req_state.open_circuit:
+                    req_state.open_circuit(reason)
+                else:
+                    self._log(f"🚫 [断路器] {site_key} 本次运行停用：{reason}")
+
     async def _call_bypass_mirror(
         self,
         *,
@@ -1479,13 +1605,21 @@ class AsyncWebClient:
                 url,
                 cf_bypass_url=self.cf_bypass_url,
             )
-            limiter = self.limiters.get(u.host)
+            site_key = self._resolve_site_key(host)
+            if self._is_site_circuit_open(site_key):
+                raise SiteCircuitOpen(f"站点 {site_key} 已断路，本次运行不再请求")
+
+            await self._wait_for_site_pause_if_needed(site_key)
+
+            request_start_time = self._get_time()
+
             retry_count = max(int(self.retry if retry_count is None else retry_count), 1)
             error_msg = ""
             bypass_round = 0
             allow_lifetime_rotation = purpose != "download"
+            ban_retried = False
 
-            for attempt in range(retry_count):
+            for attempt in range(max(retry_count, 2) + 1):
                 # 增强的重试策略: 对网络错误和特定状态码都进行重试
                 retry = False
                 should_sleep_before_retry = True
@@ -1511,6 +1645,10 @@ class AsyncWebClient:
                 )
                 pool_key = HostPoolManager.key_for_request(url, request_proxy, fingerprint)
                 try:
+                    _check_site_circuit()
+                    if self._is_site_circuit_open(site_key):
+                        raise SiteCircuitOpen(f"站点 {site_key} 已断路，本次运行不再请求")
+                    limiter = self.limiters.get(host or "default")
                     async with exempt_crawl_timeout():
                         await limiter.acquire()
                     req_headers = dict(prepared_headers)
@@ -1620,6 +1758,7 @@ class AsyncWebClient:
                                     )
                                     if stream:
                                         await self._close_response(resp)
+                                    await self._record_site_success(site_key)
                                     return bypass_response, ""
                             else:
                                 error_msg = f"Cloudflare 挑战页且 bypass 失败: {bypass_error}"
@@ -1633,6 +1772,33 @@ class AsyncWebClient:
                                     retry = attempt < retry_count - 1 and bypass_round < self._cf_request_bypass_rounds
                                     self._log_cf(f"⚠️ bypass 失败: {bypass_error}", host)
 
+                    elif self._is_ban_response(resp):
+                        is_1015 = self._is_cf_1015_response(resp)
+                        status_text = f"{resp.status_code} (1015)" if is_1015 else f"{resp.status_code}"
+                        error_msg = f"HTTP {status_text}"
+                        if not ban_retried:
+                            ban_retried = True
+                            self._log(
+                                f"⚠️ [封禁] {host} 返回 {status_text}，等待 {int(BAN_RETRY_SLEEP_SECONDS)}s 后重试 1 次"
+                            )
+                            if stream:
+                                await self._close_response(resp)
+                            async with exempt_crawl_timeout():
+                                await self._do_sleep(BAN_RETRY_SLEEP_SECONDS)
+                            continue
+                        else:
+                            req_state = crawl_request_state.get()
+                            if req_state:
+                                req_state.is_ban_failure = True
+                            await self._record_site_ban_failure(
+                                site_key,
+                                status_code=resp.status_code,
+                                request_start_time=request_start_time,
+                            )
+                            if stream:
+                                await self._close_response(resp)
+                            break
+
                     # 检查响应状态
                     elif resp.status_code >= 300 and not (resp.status_code == 302 and resp.headers.get("Location")):
                         error_msg = f"HTTP {resp.status_code}"
@@ -1644,6 +1810,7 @@ class AsyncWebClient:
                         if host:
                             self._cf_host_challenge_hits[host] = 0
                         await self._record_transport_success(pool_key=pool_key)
+                        await self._record_site_success(site_key)
                         return resp, ""
                 except SiteCircuitOpen:
                     raise
@@ -1674,6 +1841,8 @@ class AsyncWebClient:
                 self._log(f"🔴 {method} {url} 失败: {error_msg} ({attempt + 1}/{retry_count})")
                 if stream:
                     await self._close_response(resp)
+                if attempt >= retry_count - 1 and not (self._is_ban_response(resp) and not ban_retried):
+                    break
                 # 重试前等待
                 if should_sleep_before_retry and attempt < retry_count - 1:
                     if resp is not None and resp.status_code == 429:
@@ -1697,7 +1866,7 @@ class AsyncWebClient:
                         if sleep_after_cf_bypass and host:
                             self._log_cf(f"⏳ bypass 后退避 {sleep_seconds:.2f}s", host)
                     async with exempt_crawl_timeout():
-                        await asyncio.sleep(sleep_seconds)
+                        await self._do_sleep(sleep_seconds)
             self._record_crawl_failure(error_msg)
             return None, f"{method} {url} 失败: {error_msg}"
         except SiteCircuitOpen:
@@ -1711,7 +1880,11 @@ class AsyncWebClient:
     def _record_crawl_failure(self, error: str) -> None:
         state = crawl_request_state.get()
         # A missing number is a normal result, including mirror's terminal 404.
-        if state is not None and not re.search(r"\bHTTP 404\b", error):
+        if (
+            state is not None
+            and not getattr(state, "is_ban_failure", False)
+            and not re.search(r"\bHTTP 404\b", error)
+        ):
             state.request_failed = True
 
     async def get_text(

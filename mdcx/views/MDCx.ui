@@ -8959,7 +8959,7 @@
                         <x>30</x>
                         <y>20</y>
                         <width>701</width>
-                        <height>481</height>
+                        <height>490</height>
                       </rect>
                     </property>
                     <property name="minimumSize">
@@ -9029,9 +9029,9 @@
                       <property name="geometry">
                         <rect>
                           <x>60</x>
-                          <y>210</y>
+                          <y>198</y>
                           <width>621</width>
-                        <height>238</height>
+                        <height>250</height>
                         </rect>
                       </property>
                       <layout class="QVBoxLayout" name="verticalLayout_2">
@@ -9347,6 +9347,29 @@
                             </item>
                           </layout>
                         </item>
+                        <item>
+                          <layout class="QHBoxLayout" name="horizontalLayout_trailer_quality_probe">
+                            <item>
+                              <widget class="QCheckBox" name="checkBox_trailer_quality_probe">
+                                <property name="sizePolicy">
+                                  <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                                    <horstretch>0</horstretch>
+                                    <verstretch>0</verstretch>
+                                  </sizepolicy>
+                                </property>
+                                <property name="minimumSize">
+                                  <size>
+                                    <width>10</width>
+                                    <height>0</height>
+                                  </size>
+                                </property>
+                                <property name="text">
+                                  <string>探测更高画质预告片（会多发若干请求）</string>
+                                </property>
+                              </widget>
+                            </item>
+                          </layout>
+                        </item>
                       </layout>
                     </widget>
                     <widget class="QWidget" name="layoutWidget">
@@ -9417,9 +9440,9 @@
                       <property name="geometry">
                         <rect>
                           <x>60</x>
-                        <y>440</y>
+                        <y>452</y>
                           <width>621</width>
-                          <height>41</height>
+                          <height>34</height>
                         </rect>
                       </property>
                       <property name="sizePolicy">
