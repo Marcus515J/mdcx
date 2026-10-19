@@ -10,6 +10,14 @@ from ..config.manager import manager
 from ..gen.field_enums import CrawlerResultFields
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
 
+MIRROR_HREF_PATTERN = re.compile(r"(?:^|/)jav[a-z0-9_]+\.html(?:$|[?#])", re.IGNORECASE)
+
+
+def _is_video_link(href: str) -> bool:
+    if not href:
+        return False
+    return "/?v=jav" in href or bool(MIRROR_HREF_PATTERN.search(href))
+
 
 def get_real_url(html, number, domain_2):
     real_url = ""
@@ -21,13 +29,17 @@ def get_real_url(html, number, domain_2):
         if new_number in each.replace("-", "").upper():
             real_url = html.xpath('//div[@id="video_title"]/h3/a[contains(text(), $title)]/@href', title=each)[0]
             return urllib.parse.urljoin(origin, real_url)
-    result = html.xpath('//a[contains(@href, "/?v=jav")]/@title')
 
-    for each in result:
-        if new_number in each.replace("-", "").upper():
-            real_url = html.xpath("//a[@title=$title]/@href", title=each)[0]
-            real_url = urllib.parse.urljoin(domain_2 + "/", real_url)
-            if "ブルーレイディスク" not in each:
+    links = html.xpath("//a[@href and @title]")
+
+    for a in links:
+        href = (a.get("href") or "").strip()
+        title = (a.get("title") or "").strip()
+        if not _is_video_link(href):
+            continue
+        if new_number in title.replace("-", "").upper():
+            real_url = urllib.parse.urljoin(f"{domain_2.rstrip('/')}/", href)
+            if "ブルーレイディスク" not in title:
                 return real_url
     if real_url:
         return real_url
