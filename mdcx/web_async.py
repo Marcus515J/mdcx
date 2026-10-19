@@ -391,6 +391,9 @@ class AsyncWebClient:
         self._cf_last_bypass_attempt_at: dict[str, float] = {}
         self._cf_host_challenge_hits: dict[str, int] = {}
         self._cf_bypass_min_interval = 2.0
+        self._cf_site_min_intervals: dict[str, float] = {
+            "javlibrary": 3.0,
+        }
         self._cf_bypass_timeout = float(cf_bypass_timeout)
         self._cf_bypass_retries = 2
         self._cf_mirror_max_redirects = 8
@@ -813,6 +816,40 @@ class AsyncWebClient:
         headers = {str(k): str(v) for k, v in response.headers.items()}
         return bool(self._extract_header_case_insensitive(headers, "location").strip())
 
+    def _get_cf_bypass_min_interval(self, host: str = "") -> float:
+        normalized = (host or "").lower()
+        for site_key, interval in self._cf_site_min_intervals.items():
+            if site_key in normalized:
+                return float(interval)
+        return float(self._cf_bypass_min_interval)
+
+    def _parse_retry_after(self, headers: dict[str, Any] | None) -> float | None:
+        if not headers:
+            return None
+        value = self._extract_header_case_insensitive(headers, "retry-after").strip()
+        if not value:
+            return None
+        try:
+            sec = float(value)
+            if sec >= 0:
+                return min(sec, 30.0)
+            return None
+        except ValueError:
+            pass
+        try:
+            import email.utils
+            from datetime import UTC, datetime
+
+            dt = email.utils.parsedate_to_datetime(value)
+            now = datetime.now(UTC)
+            sec = (dt - now).total_seconds()
+            if sec >= 0:
+                return min(sec, 30.0)
+            return 0.0
+        except Exception:
+            pass
+        return None
+
     def _is_retryable_status_code(self, status_code: int) -> bool:
         return status_code in (
             500,  # Internal Server Error
@@ -1067,6 +1104,74 @@ class AsyncWebClient:
             self._bind_response_effective_url(response, current_url)
             response.headers["x-mdcx-bypass-mode"] = "mirror"
 
+            if response.status_code == 429:
+                max_429_retries = 2
+                for retry_k in range(1, max_429_retries + 1):
+                    headers_map = {str(k): str(v) for k, v in response.headers.items()}
+                    retry_after = self._parse_retry_after(headers_map)
+                    if retry_after is not None:
+                        wait_seconds = retry_after
+                    else:
+                        wait_seconds = 5.0 if retry_k == 1 else 10.0
+                    wait_seconds = min(wait_seconds, getattr(self, "site_total_timeout", 120.0))
+                    site_name = "javlibrary" if "javlibrary" in target_host.lower() else (target_host or "目标站点")
+                    self._log(
+                        f"⏳ [限流] {site_name} 返回 429，等待 {wait_seconds:g}s 后重试 ({retry_k}/{max_429_retries})"
+                    )
+                    await asyncio.sleep(wait_seconds)
+
+                    try:
+                        limiter = self.limiters.get("127.0.0.1")
+                        await limiter.acquire()
+                        response = await self._curl_request(
+                            method=current_method,
+                            url=mirror_url,
+                            proxy=None,
+                            headers=mirror_headers,
+                            data=current_data,
+                            json=current_json_data,
+                            timeout=timeout or 45.0,
+                            stream=False,
+                            allow_redirects=False,
+                        )
+                    except SiteCircuitOpen:
+                        raise
+                    except Timeout:
+                        response = None
+                        error = "mirror 请求超时"
+                        await self._record_transport_failure(error, pool_key=mirror_pool_key)
+                        break
+                    except ConnectionError as exc:
+                        response = None
+                        error = f"mirror 连接错误: {exc}"
+                        await self._record_transport_failure(error, pool_key=mirror_pool_key)
+                        break
+                    except RequestException as exc:
+                        response = None
+                        error = f"mirror 请求异常: {exc}"
+                        await self._record_transport_failure(error, pool_key=mirror_pool_key)
+                        break
+                    except TimeoutError:
+                        response = None
+                        error = "mirror 请求等待超时"
+                        await self._record_transport_failure(error, pool_key=mirror_pool_key)
+                        break
+                    except Exception as exc:
+                        response = None
+                        error = f"mirror 未知错误: {exc}"
+                        await self._record_transport_failure(error, pool_key=mirror_pool_key)
+                        break
+
+                    if response is None:
+                        break
+                    self._bind_response_effective_url(response, current_url)
+                    response.headers["x-mdcx-bypass-mode"] = "mirror"
+                    if response.status_code != 429:
+                        break
+
+            if response is None:
+                return None, error
+
             if self._is_cf_challenge_response(response):
                 return None, "mirror 返回 Cloudflare 挑战页"
 
@@ -1170,6 +1275,7 @@ class AsyncWebClient:
     ) -> tuple[Response | None, str]:
         lock = await self._get_cf_host_lock(host)
         async with lock:
+            min_interval = self._get_cf_bypass_min_interval(host)
             while True:
                 now = time.monotonic()
                 last_attempt = self._cf_last_bypass_attempt_at.get(host, 0.0)
@@ -1177,10 +1283,10 @@ class AsyncWebClient:
                     break
 
                 elapsed = now - last_attempt
-                if elapsed >= self._cf_bypass_min_interval:
+                if elapsed >= min_interval:
                     break
 
-                wait_seconds = self._cf_bypass_min_interval - elapsed
+                wait_seconds = min_interval - elapsed
                 if wait_seconds >= 0.2:
                     self._log_cf(f"🕒 bypass 冷却中 {wait_seconds:.2f}s，等待后继续", host)
                 await asyncio.sleep(wait_seconds)
@@ -1234,9 +1340,14 @@ class AsyncWebClient:
                     html_bypass_cache = False
 
                 mirror_status = self._extract_http_status_from_bypass_error(mirror_error, prefix="mirror HTTP")
-                skip_html_fallback = mirror_status is not None and not self._is_retryable_status_code(mirror_status)
+                skip_html_fallback = mirror_status == 429 or (
+                    mirror_status is not None and not self._is_retryable_status_code(mirror_status)
+                )
                 if skip_html_fallback:
-                    error = f"mirror 返回终态 HTTP {mirror_status}，跳过 /html 回退"
+                    if mirror_status == 429:
+                        error = "mirror 返回终态 HTTP 429，跳过 /html 回退"
+                    else:
+                        error = f"mirror 返回终态 HTTP {mirror_status}，跳过 /html 回退"
                     can_retry = False
                     self._log_cf(f"⚠️ {error}", host)
                 elif str(method).upper() == "GET":
@@ -1449,7 +1560,9 @@ class AsyncWebClient:
                             else:
                                 error_msg = f"Cloudflare 挑战页且 bypass 失败: {bypass_error}"
                                 terminal_status = self._extract_terminal_bypass_status(bypass_error)
-                                if terminal_status is not None and not self._is_retryable_status_code(terminal_status):
+                                if terminal_status is not None and (
+                                    terminal_status == 429 or not self._is_retryable_status_code(terminal_status)
+                                ):
                                     retry = False
                                     self._log_cf(f"🧱 bypass 命中终态 HTTP {terminal_status}，停止重试", host)
                                 else:
@@ -1499,9 +1612,26 @@ class AsyncWebClient:
                     await self._close_response(resp)
                 # 重试前等待
                 if should_sleep_before_retry and attempt < retry_count - 1:
-                    sleep_seconds = self._calc_retry_sleep_seconds(attempt, after_cf_bypass=sleep_after_cf_bypass)
-                    if sleep_after_cf_bypass and host:
-                        self._log_cf(f"⏳ bypass 后退避 {sleep_seconds:.2f}s", host)
+                    if resp is not None and resp.status_code == 429:
+                        max_429_retries = 2
+                        if attempt >= max_429_retries:
+                            retry = False
+                            break
+                        resp_headers = {str(k): str(v) for k, v in resp.headers.items()}
+                        retry_after = self._parse_retry_after(resp_headers)
+                        if retry_after is not None:
+                            sleep_seconds = retry_after
+                        else:
+                            sleep_seconds = 5.0 if attempt == 0 else 10.0
+                        sleep_seconds = min(sleep_seconds, getattr(self, "site_total_timeout", 120.0))
+                        site_name = "javlibrary" if "javlibrary" in host.lower() else (host or "目标站点")
+                        self._log(
+                            f"⏳ [限流] {site_name} 返回 429，等待 {sleep_seconds:g}s 后重试 ({attempt + 1}/{max_429_retries})"
+                        )
+                    else:
+                        sleep_seconds = self._calc_retry_sleep_seconds(attempt, after_cf_bypass=sleep_after_cf_bypass)
+                        if sleep_after_cf_bypass and host:
+                            self._log_cf(f"⏳ bypass 后退避 {sleep_seconds:.2f}s", host)
                     await asyncio.sleep(sleep_seconds)
             self._record_crawl_failure(error_msg)
             return None, f"{method} {url} 失败: {error_msg}"
