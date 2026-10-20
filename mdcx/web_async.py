@@ -1176,6 +1176,46 @@ class AsyncWebClient:
                 else:
                     self._log(f"🚫 [断路器] {site_key} 本次运行停用：{reason}")
 
+    async def _handle_ban_action(
+        self,
+        *,
+        host: str,
+        site_key: str,
+        status_code: int,
+        is_1015: bool,
+        ban_retried: bool,
+        request_start_time: float,
+        responses_to_close: list[Response | None] = (),
+        stream: bool = False,
+    ) -> bool:
+        status_text = f"{status_code} (1015)" if is_1015 else f"{status_code}"
+        if not ban_retried:
+            self._log(f"⚠️ [封禁] {host} 返回 {status_text}，等待 {int(BAN_RETRY_SLEEP_SECONDS)}s 后重试 1 次")
+            if stream:
+                for r in responses_to_close:
+                    if r is not None:
+                        await self._close_response(r)
+            async with exempt_crawl_timeout():
+                await self._do_sleep(BAN_RETRY_SLEEP_SECONDS)
+            if self._is_site_circuit_open(site_key):
+                raise SiteCircuitOpen(f"站点 {site_key} 已断路，本次运行不再请求")
+            await self._wait_for_site_pause_if_needed(site_key)
+            return True
+        else:
+            req_state = crawl_request_state.get()
+            if req_state:
+                req_state.is_ban_failure = True
+            await self._record_site_ban_failure(
+                site_key,
+                status_code=status_code,
+                request_start_time=request_start_time,
+            )
+            if stream:
+                for r in responses_to_close:
+                    if r is not None:
+                        await self._close_response(r)
+            return False
+
     async def _call_bypass_mirror(
         self,
         *,
@@ -1655,7 +1695,10 @@ class AsyncWebClient:
                     req_cookies = self._merge_cookies(cookies)
 
                     direct_bypass = bool(
-                        enable_cf_bypass and self._cf_bypass_enabled and host and host in self._cf_known_bypass_hosts
+                        enable_cf_bypass
+                        and self._cf_bypass_enabled
+                        and host
+                        and (host in self._cf_known_bypass_hosts or (ban_retried and bypass_round > 0))
                     )
 
                     if direct_bypass:
@@ -1707,8 +1750,9 @@ class AsyncWebClient:
                             self._cf_host_challenge_hits[host] = self._cf_host_challenge_hits.get(host, 0) + 1
 
                     if bypass_needed:
-                        if bypass_round >= self._cf_request_bypass_rounds:
-                            error_msg = f"Cloudflare 挑战页持续存在，bypass 已达上限 ({self._cf_request_bypass_rounds})"
+                        max_bypass_rounds = self._cf_request_bypass_rounds + (1 if ban_retried else 0)
+                        if bypass_round >= max_bypass_rounds:
+                            error_msg = f"Cloudflare 挑战页持续存在，bypass 已达上限 ({max_bypass_rounds})"
                             retry = False
                             self._log_cf(f"🚫 {error_msg}", host)
                         else:
@@ -1732,7 +1776,30 @@ class AsyncWebClient:
                                     {str(k): str(v) for k, v in bypass_response.headers.items()},
                                     "x-mdcx-bypass-mode",
                                 )
-                                if bypass_response.status_code >= 300 and not (
+                                is_1015 = self._is_cf_1015_response(bypass_response)
+                                if bypass_response.status_code == 403 or is_1015:
+                                    status_text = (
+                                        f"{bypass_response.status_code} (1015)"
+                                        if is_1015
+                                        else f"{bypass_response.status_code}"
+                                    )
+                                    error_msg = f"HTTP {status_text}"
+                                    should_retry = await self._handle_ban_action(
+                                        host=host,
+                                        site_key=site_key,
+                                        status_code=bypass_response.status_code,
+                                        is_1015=is_1015,
+                                        ban_retried=ban_retried,
+                                        request_start_time=request_start_time,
+                                        responses_to_close=[bypass_response, resp],
+                                        stream=stream,
+                                    )
+                                    if should_retry:
+                                        ban_retried = True
+                                        continue
+                                    else:
+                                        break
+                                elif bypass_response.status_code >= 300 and not (
                                     bypass_response.status_code == 302
                                     and self._extract_header_case_insensitive(
                                         {str(k): str(v) for k, v in bypass_response.headers.items()}, "location"
@@ -1763,7 +1830,23 @@ class AsyncWebClient:
                             else:
                                 error_msg = f"Cloudflare 挑战页且 bypass 失败: {bypass_error}"
                                 terminal_status = self._extract_terminal_bypass_status(bypass_error)
-                                if terminal_status is not None and (
+                                if terminal_status == 403:
+                                    should_retry = await self._handle_ban_action(
+                                        host=host,
+                                        site_key=site_key,
+                                        status_code=403,
+                                        is_1015=False,
+                                        ban_retried=ban_retried,
+                                        request_start_time=request_start_time,
+                                        responses_to_close=[resp],
+                                        stream=stream,
+                                    )
+                                    if should_retry:
+                                        ban_retried = True
+                                        continue
+                                    else:
+                                        break
+                                elif terminal_status is not None and (
                                     terminal_status == 429 or not self._is_retryable_status_code(terminal_status)
                                 ):
                                     retry = False
@@ -1776,27 +1859,20 @@ class AsyncWebClient:
                         is_1015 = self._is_cf_1015_response(resp)
                         status_text = f"{resp.status_code} (1015)" if is_1015 else f"{resp.status_code}"
                         error_msg = f"HTTP {status_text}"
-                        if not ban_retried:
+                        should_retry = await self._handle_ban_action(
+                            host=host,
+                            site_key=site_key,
+                            status_code=resp.status_code,
+                            is_1015=is_1015,
+                            ban_retried=ban_retried,
+                            request_start_time=request_start_time,
+                            responses_to_close=[resp],
+                            stream=stream,
+                        )
+                        if should_retry:
                             ban_retried = True
-                            self._log(
-                                f"⚠️ [封禁] {host} 返回 {status_text}，等待 {int(BAN_RETRY_SLEEP_SECONDS)}s 后重试 1 次"
-                            )
-                            if stream:
-                                await self._close_response(resp)
-                            async with exempt_crawl_timeout():
-                                await self._do_sleep(BAN_RETRY_SLEEP_SECONDS)
                             continue
                         else:
-                            req_state = crawl_request_state.get()
-                            if req_state:
-                                req_state.is_ban_failure = True
-                            await self._record_site_ban_failure(
-                                site_key,
-                                status_code=resp.status_code,
-                                request_start_time=request_start_time,
-                            )
-                            if stream:
-                                await self._close_response(resp)
                             break
 
                     # 检查响应状态

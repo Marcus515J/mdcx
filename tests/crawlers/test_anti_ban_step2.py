@@ -578,3 +578,394 @@ async def test_t10_regression_all_v26_and_v27_tests():
     await test_t3_single_movie_timeout_does_not_trip_circuit_breaker()
     await test_t4_cooldown_and_429_backoff_not_counted_in_timeout()
     await test_t5_regression_exhausted_attempts_still_trips_circuit_breaker()
+
+
+@pytest.mark.asyncio
+async def test_t11_movie_b_in_15s_wait_defers_retry_until_movie_a_pause_ends():
+    """T11: A 片直连 403 两次触发暂停时，B 片正处于 15 秒等待中；B 片重发推迟到暂停结束后；暂停期内该站请求数为 0；站点计数仍为 1。"""
+    logs: list[str] = []
+    client = AsyncWebClient(timeout=10, cf_bypass_url="", log_fn=logs.append)
+    crawler = DummyJavCrawler(client=client)
+
+    virtual_time = 1000.0
+    time_lock = asyncio.Lock()
+
+    def get_time():
+        return virtual_time
+
+    client._time_fn = get_time
+
+    b_started_sleep = asyncio.Event()
+    a_finished_pause_trigger = asyncio.Event()
+    request_records: list[tuple[str, float]] = []
+
+    async def fake_sleep(delay: float):
+        nonlocal virtual_time
+        if delay == 15.0 and not b_started_sleep.is_set():
+            b_started_sleep.set()
+            await a_finished_pause_trigger.wait()
+            async with time_lock:
+                virtual_time = max(virtual_time, 1025.0)
+            return
+
+        async with time_lock:
+            virtual_time += delay
+        await asyncio.sleep(0.001)
+
+    client._sleep = fake_sleep
+
+    async def fake_curl_request(*args, **kwargs):
+        nonlocal virtual_time
+        url = str(kwargs.get("url") or "")
+        async with time_lock:
+            t = virtual_time
+            request_records.append((url, t))
+        await asyncio.sleep(0.001)
+        return FakeResponse(status_code=403, content=b"Forbidden", url=url)
+
+    client._curl_request = fake_curl_request  # type: ignore[method-assign]
+
+    async def run_b():
+        return await crawler.run(_crawl_input("MOVIE-B"))
+
+    async def run_a():
+        nonlocal virtual_time
+        await b_started_sleep.wait()
+        async with time_lock:
+            virtual_time = 1000.0
+        res_a = await crawler.run(_crawl_input("MOVIE-A"))
+        a_finished_pause_trigger.set()
+        return res_a
+
+    res_b_task = asyncio.create_task(run_b())
+    res_a_task = asyncio.create_task(run_a())
+
+    res_b, res_a = await asyncio.gather(res_b_task, res_a_task)
+
+    assert res_a.data is None
+    assert res_b.data is None
+
+    site_state = client._site_ban_states["javlibrary"]
+    assert site_state.failure_count == 1
+    assert sum("暂停该站 60s" in line for line in logs) == 1
+
+    pause_start = 1015.0
+    pause_end = site_state.pause_until
+    requests_during_pause = [
+        (u, t) for u, t in request_records
+        if pause_start < t < pause_end
+    ]
+    assert len(requests_during_pause) == 0, f"暂停期间不应有请求: {requests_during_pause}"
+
+    b_requests = [(u, t) for u, t in request_records if "MOVIE-B" in u]
+    assert len(b_requests) == 2
+    assert b_requests[1][1] >= pause_end
+
+    await crawler.close()
+
+
+@pytest.mark.asyncio
+async def test_t12_known_bypass_host_bypass_403_twice_retries_once_and_pauses():
+    """T12: 已知 bypass host，bypass 返回 403 两次；共 2 次 bypass 请求（不是 retry 次）；该片放弃该站；计数 1；暂停 60 秒。"""
+    logs: list[str] = []
+    client = AsyncWebClient(timeout=10, cf_bypass_url="http://127.0.0.1:8000", log_fn=logs.append)
+    client._cf_known_bypass_hosts.add("www.javlibrary.com")
+    sleeps: list[float] = []
+
+    virtual_time = 1000.0
+    client._time_fn = lambda: virtual_time
+
+    async def fake_sleep(delay: float):
+        nonlocal virtual_time
+        sleeps.append(delay)
+        virtual_time += delay
+
+    client._sleep = fake_sleep
+
+    bypass_calls: list[str] = []
+
+    async def fake_try_bypass_cloudflare(*args, **kwargs):
+        target_url = str(kwargs.get("target_url") or "")
+        bypass_calls.append(target_url)
+        return FakeResponse(status_code=403, content=b"Forbidden", url=target_url), ""
+
+    client._try_bypass_cloudflare = fake_try_bypass_cloudflare  # type: ignore[method-assign]
+
+    res, err = await client.request("GET", "https://www.javlibrary.com/ja/vl_search.php", retry_count=5)
+    assert res is None
+    assert "403" in err
+    assert len(bypass_calls) == 2
+    assert sleeps == [15.0]
+
+    site_state = client._site_ban_states["www.javlibrary.com"]
+    assert site_state.failure_count == 1
+    assert site_state.pause_until == 1000.0 + 15.0 + 60.0
+    assert any("⚠️ [封禁] www.javlibrary.com 返回 403，等待 15s 后重试 1 次" in line for line in logs)
+    assert any("⏸️ [封禁] www.javlibrary.com 第 1/3 次被拒，暂停该站 60s" in line for line in logs)
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_t13_bypass_1015_ban_page_403_and_429_handled_as_ban():
+    """T13: bypass 返回 1015 页（403、429 各一例）；同 T12；不走 429 退避。"""
+    logs: list[str] = []
+    client = AsyncWebClient(timeout=10, cf_bypass_url="http://127.0.0.1:8000", log_fn=logs.append)
+    client._cf_known_bypass_hosts.add("www.javlibrary.com")
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float):
+        sleeps.append(delay)
+
+    client._sleep = fake_sleep
+
+    bypass_calls1: list[str] = []
+
+    async def fake_try_bypass_1015_403(*args, **kwargs):
+        target_url = str(kwargs.get("target_url") or "")
+        bypass_calls1.append(target_url)
+        return FakeResponse(
+            status_code=403,
+            content=b"<html><title>Error 1015: You are being rate limited</title></html>",
+            url=target_url,
+        ), ""
+
+    client._try_bypass_cloudflare = fake_try_bypass_1015_403  # type: ignore[method-assign]
+
+    res1, err1 = await client.request("GET", "https://www.javlibrary.com/test1", retry_count=5)
+    assert res1 is None
+    assert len(bypass_calls1) == 2
+    assert sleeps == [15.0]
+    assert any("⚠️ [封禁] www.javlibrary.com 返回 403 (1015)，等待 15s 后重试 1 次" in line for line in logs)
+    assert any("⏸️ [封禁] www.javlibrary.com 第 1/3 次被拒，暂停该站 60s" in line for line in logs)
+    assert not any("⏳ [限流]" in line for line in logs)
+    assert client._site_ban_states["www.javlibrary.com"].failure_count == 1
+
+    logs.clear()
+    sleeps.clear()
+    client._site_ban_states.clear()
+    bypass_calls2: list[str] = []
+
+    async def fake_try_bypass_1015_429(*args, **kwargs):
+        target_url = str(kwargs.get("target_url") or "")
+        bypass_calls2.append(target_url)
+        return FakeResponse(
+            status_code=429,
+            content=b"<html><body>error code: 1015<p>you are being rate limited</p></body></html>",
+            url=target_url,
+        ), ""
+
+    client._try_bypass_cloudflare = fake_try_bypass_1015_429  # type: ignore[method-assign]
+
+    res2, err2 = await client.request("GET", "https://www.javlibrary.com/test2", retry_count=5)
+    assert res2 is None
+    assert len(bypass_calls2) == 2
+    assert sleeps == [15.0]
+    assert any("⚠️ [封禁] www.javlibrary.com 返回 429 (1015)，等待 15s 后重试 1 次" in line for line in logs)
+    assert any("⏸️ [封禁] www.javlibrary.com 第 1/3 次被拒，暂停该站 60s" in line for line in logs)
+    assert not any("⏳ [限流]" in line for line in logs)
+    assert client._site_ban_states["www.javlibrary.com"].failure_count == 1
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_t14_bypass_failure_terminal_status_403_handled_as_ban():
+    """T14: bypass 失败、终态状态码 403；同 T12。"""
+    logs: list[str] = []
+    client = AsyncWebClient(timeout=10, cf_bypass_url="http://127.0.0.1:8000", log_fn=logs.append)
+    client._cf_known_bypass_hosts.add("www.javlibrary.com")
+    sleeps: list[float] = []
+
+    virtual_time = 1000.0
+    client._time_fn = lambda: virtual_time
+
+    async def fake_sleep(delay: float):
+        nonlocal virtual_time
+        sleeps.append(delay)
+        virtual_time += delay
+
+    client._sleep = fake_sleep
+
+    bypass_calls: list[str] = []
+
+    async def fake_try_bypass_terminal_403(*args, **kwargs):
+        target_url = str(kwargs.get("target_url") or "")
+        bypass_calls.append(target_url)
+        return None, "mirror 返回终态 HTTP 403，跳过 /html 回退"
+
+    client._try_bypass_cloudflare = fake_try_bypass_terminal_403  # type: ignore[method-assign]
+
+    res, err = await client.request("GET", "https://www.javlibrary.com/test", retry_count=5)
+    assert res is None
+    assert "403" in err
+    assert len(bypass_calls) == 2
+    assert sleeps == [15.0]
+
+    site_state = client._site_ban_states["www.javlibrary.com"]
+    assert site_state.failure_count == 1
+    assert any("⚠️ [封禁] www.javlibrary.com 返回 403，等待 15s 后重试 1 次" in line for line in logs)
+    assert any("⏸️ [封禁] www.javlibrary.com 第 1/3 次被拒，暂停该站 60s" in line for line in logs)
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_t15_direct_and_bypass_share_site_ban_count_trips_at_three():
+    """T15: 直连 403 失败 1 次 + bypass 403 失败 2 次（同站、不同片、依次）；第 3 次后停站（共用计数）。"""
+    logs: list[str] = []
+    client = AsyncWebClient(timeout=10, cf_bypass_url="http://127.0.0.1:8000", log_fn=logs.append)
+    crawler = DummyJavCrawler(client=client)
+
+    virtual_time = 1000.0
+    client._time_fn = lambda: virtual_time
+
+    async def fake_sleep(delay: float):
+        nonlocal virtual_time
+        virtual_time += delay
+
+    client._sleep = fake_sleep
+
+    direct_calls: list[str] = []
+
+    async def fake_curl_request(*args, **kwargs):
+        url = str(kwargs.get("url") or "")
+        direct_calls.append(url)
+        return FakeResponse(status_code=403, content=b"Forbidden", url=url)
+
+    client._curl_request = fake_curl_request  # type: ignore[method-assign]
+
+    bypass_calls: list[str] = []
+
+    async def fake_try_bypass_cloudflare(*args, **kwargs):
+        target_url = str(kwargs.get("target_url") or "")
+        bypass_calls.append(target_url)
+        return FakeResponse(status_code=403, content=b"Forbidden", url=target_url), ""
+
+    client._try_bypass_cloudflare = fake_try_bypass_cloudflare  # type: ignore[method-assign]
+
+    # Movie 1: 直连 403 两次
+    res1 = await crawler.run(_crawl_input("MOVIE-001"))
+    assert res1.data is None
+    assert client._site_ban_states["javlibrary"].failure_count == 1
+    assert len(direct_calls) == 2
+    assert len(bypass_calls) == 0
+
+    # 标记 javlibrary 已确认需要 bypass
+    client._cf_known_bypass_hosts.add("www.javlibrary.com")
+
+    # Movie 2: bypass 403 两次
+    res2 = await crawler.run(_crawl_input("MOVIE-002"))
+    assert res2.data is None
+    assert client._site_ban_states["javlibrary"].failure_count == 2
+    assert len(bypass_calls) == 2
+
+    # Movie 3: bypass 403 两次 -> 累计第 3 次被拒，断路器打开停用整站！
+    res3 = await crawler.run(_crawl_input("MOVIE-003"))
+    assert res3.data is None
+    assert client._site_ban_states["javlibrary"].failure_count == 3
+    assert len(bypass_calls) == 4
+
+    expected_reason = "连续 3 部片被拒绝 (403)，可能已被限制访问"
+    assert crawler._site_failure == expected_reason
+    assert any(f"🚫 [断路器] javlibrary 本次运行停用：{expected_reason}" in line for line in logs)
+
+    # Movie 4: 此时已停用，后续番号直接跳过该站
+    res4 = await crawler.run(_crawl_input("MOVIE-004"))
+    assert res4.data is None
+    assert isinstance(res4.debug_info.error, SiteCircuitOpen)
+    assert len(bypass_calls) == 4
+    assert any("⏭ [断路器] javlibrary 本次运行跳过后续番号" in line for line in logs)
+
+    await crawler.close()
+
+
+@pytest.mark.asyncio
+async def test_t16_bypass_normal_429_and_5xx_keeps_existing_behavior():
+    """T16: bypass 返回普通 429、5xx；与 35a33b6 行为一致。"""
+    logs: list[str] = []
+    client = AsyncWebClient(timeout=10, cf_bypass_url="http://127.0.0.1:8000", log_fn=logs.append)
+    client._cf_known_bypass_hosts.add("www.javlibrary.com")
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float):
+        sleeps.append(delay)
+
+    client._sleep = fake_sleep
+
+    # 例 1: bypass 返回普通 429（非 1015）
+    bypass_calls_429: list[str] = []
+
+    async def fake_try_bypass_normal_429(*args, **kwargs):
+        target_url = str(kwargs.get("target_url") or "")
+        bypass_calls_429.append(target_url)
+        return FakeResponse(
+            status_code=429,
+            content=b"Too Many Requests",
+            url=target_url,
+        ), ""
+
+    client._try_bypass_cloudflare = fake_try_bypass_normal_429  # type: ignore[method-assign]
+
+    res1, err1 = await client.request("GET", "https://www.javlibrary.com/test", retry_count=3)
+    assert res1 is None
+    assert not any("⚠️ [封禁]" in line for line in logs)
+    assert not any("⏸️ [封禁]" in line for line in logs)
+    assert len(client._site_ban_states) == 0
+
+    # 例 2: bypass 返回 500
+    logs.clear()
+    sleeps.clear()
+    bypass_calls_500: list[str] = []
+
+    async def fake_try_bypass_500(*args, **kwargs):
+        target_url = str(kwargs.get("target_url") or "")
+        bypass_calls_500.append(target_url)
+        return FakeResponse(
+            status_code=500,
+            content=b"Internal Server Error",
+            url=target_url,
+        ), ""
+
+    client._try_bypass_cloudflare = fake_try_bypass_500  # type: ignore[method-assign]
+
+    res2, err2 = await client.request("GET", "https://www.javlibrary.com/test", retry_count=3)
+    assert res2 is None
+    assert not any("⚠️ [封禁]" in line for line in logs)
+    assert not any("⏸️ [封禁]" in line for line in logs)
+    assert len(client._site_ban_states) == 0
+
+    # 例 3: bypass 终态 429 (非 1015)
+    logs.clear()
+    sleeps.clear()
+
+    async def fake_try_bypass_terminal_429(*args, **kwargs):
+        return None, "mirror 返回终态 HTTP 429，跳过 /html 回退"
+
+    client._try_bypass_cloudflare = fake_try_bypass_terminal_429  # type: ignore[method-assign]
+
+    res3, err3 = await client.request("GET", "https://www.javlibrary.com/test", retry_count=3)
+    assert res3 is None
+    assert any("🧱 bypass 命中终态 HTTP 429，停止重试" in line for line in logs)
+    assert not any("⚠️ [封禁]" in line for line in logs)
+    assert not any("⏸️ [封禁]" in line for line in logs)
+    assert len(client._site_ban_states) == 0
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_t17_regression_all_t1_through_t10():
+    """T17: 回归：T1–T10（含 T4b、T4c）全部通过。"""
+    await test_t1_direct_403_non_cf_retries_after_15s_and_succeeds()
+    await test_t2_single_movie_403_twice_abandons_and_pauses_60s()
+    await test_t3_three_consecutive_movies_403_twice_trips_circuit_breaker()
+    await test_t4_two_failures_then_one_success_then_two_failures_does_not_trip()
+    await test_t4b_concurrent_three_movies_403_twice_records_single_failure()
+    await test_t4c_cf_1015_ban_page_403_and_429_handled_as_ban()
+    await test_t5_normal_429_keeps_master_v26_backoff()
+    await test_t6_403_cf_challenge_page_routes_to_bypass()
+    await test_t7_ban_15s_and_60s_pause_exempted_from_timeout()
+    await test_t8_trailer_quality_probe_disabled()
+    await test_t9_trailer_quality_probe_enabled_and_default_true()
+    await test_t10_regression_all_v26_and_v27_tests()
