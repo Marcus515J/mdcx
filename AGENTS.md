@@ -1,0 +1,45 @@
+# AGENTS.md（执行方规则，本仓库正本）
+
+> 给执行方（Codex 等）看。指挥（Claude）只读不照做。
+> 通用流程按 git-workflow skill：任务以 GitHub Issue 为准，汇报写在 PR 描述里，审核意见在 PR 评论里，项目进度看「项目状态」Issue #16。不在本地另建交接、报告文件。
+
+## 项目是什么
+
+MDCx 是整理本地影片、获取元数据和图片、生成 NFO，并支持文件清理及大模型翻译的桌面工具。本仓库是 Marcus515J 维护的公开 fork，保留 LICENSE、上游署名和来源。
+
+## 怎么启动
+
+- 需要 Python ≥3.13.4 和 uv。环境准备以 CONTRIBUTING.md 为准；视频测试还需要 PATH 中有 ffmpeg 和 ffprobe。
+- 在仓库根目录运行 `uv run main.py`。
+- 主力仓库：`~/Documents/Projects/mdcx`，这个目录就是仓库本身。
+- 配置 `MDCx.config`、`config.json` 和运行数据 `userdata/` 随主力保留，不提交，不作为样本或旧资料打包。
+
+## 怎么验证
+
+- 沿用 CONTRIBUTING.md：`QT_QPA_PLATFORM=offscreen uv run --locked pytest -q`；格式和静态检查使用 `uv run --locked ruff format --check .`、`uv run --locked ruff check .`。
+- 说明里用「」括起的界面名称，要有自动测试对照 `mdcx/views/MDCx.ui`；现有对照测试为 `tests/test_ui_terms.py`。
+- 样本路径固定为 `~/Documents/样本/MDCx/`。目前没有已确认的本地样本；不存在时如实报告，不编造测试输入。
+- 测试少而有效：同样 3 部片、同一套配置只测一次。Windows 验证所用设备、路径和配置以当次 Issue 和 J 的实际环境为准，不照搬历史值。
+- CI 和本机自动测试不保证外站可用，不代替 Windows/macOS 桌面交互、真实翻译和成品验证。明确区分本机实测、用户实测与尚未验证的部分。
+
+## 目录结构
+
+- `mdcx/`：刮削、网络、配置、翻译和 Qt 控制器；`mdcx/views/` 放 `.ui` 与生成的 Python 文件。
+- `resources/`：随软件分发的资源；`scripts/`：开发和构建脚本；`tests/`：自动测试；`docs/`：功能与开发说明。
+- 仓库外的 `~/Documents/样本/MDCx/` 放经确认的样本，`~/Documents/归档/` 放经批准的历史归档和备份。
+
+## 本项目特有规定
+
+- 仓库：Marcus515J/mdcx，可见性：公开；默认分支：master。所有 gh 命令都显式指定 `--repo Marcus515J/mdcx`，PR 的目标也是本仓库，不发给上游。
+- 合并方式：squash；权限与暂停条件按 git-workflow 和当次 Issue。未获准不合并、不发版、不打标签。
+- 任务、审核和项目状态以 GitHub 为正本。handoff 分支停用、只读保留，不往里面新增任务或汇报，不删除该分支。
+- 设置问题不改代码；已经决定的方向，不再劝阻。归置不顺手重构已有功能，不动工具目录中的副本。
+- 容器镜像保持最新，出问题向前修，最后才回退。
+- UI 的源文件是 `.ui`，修改后按 CONTRIBUTING.md 运行 `sh scripts/pyuic.sh` 生成 Python 文件，不直接手改生成内容。
+- 真实配置、运行数据、样本、依赖和构建产物不提交；公开 Issue/PR 不写密钥、账号、节点名或内网路径。
+- 删除前先备份或确认可恢复，逐项核对并发布精确清单；Issue #17 的所有删除均须等 J 明确说「确认删除」。搬家不等于删除其他副本的授权。
+
+## 已知限制
+
+- shallow/partial clone 的本地对象和旧远程引用不能证明最新云端状态；缺对象时不把“没有本地对象”写成“没有合并”。
+- 设置、外站或网络问题先核实现象与来源；未复现不能宣称修复。挂起需求与最新 Windows 验收进度查 Issue #16，不把旧 handoff 的状态当现状。
