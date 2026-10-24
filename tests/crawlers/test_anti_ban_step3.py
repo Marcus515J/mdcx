@@ -11,7 +11,13 @@ import mdcx.base.web as base_web
 from mdcx.config.enums import Website
 from mdcx.config.manager import manager
 from mdcx.config.models import Config, SiteConfig
-from mdcx.web_async import AsyncWebClient, CrawlRequestState, crawl_request_state, movie_request_scope
+from mdcx.web_async import (
+    AsyncWebClient,
+    CrawlRequestState,
+    SiteCircuitOpen,
+    crawl_request_state,
+    movie_request_scope,
+)
 from tests.crawlers.test_javlibrary_429_backoff import FakeResponse
 
 DMM_IMAGE = "https://awsimgsrc.dmm.co.jp/pics_dig/digital/video/ssni00126/ssni00126pl.jpg"
@@ -81,6 +87,56 @@ async def test_dmm_image_validation_outer_retries_record_single_failure():
     assert state.failure_count == 1
     assert not state.circuit_open
     await client.close()
+
+
+@pytest.mark.asyncio
+async def test_three_distinct_movies_fail_once_each_trips_dmm_circuit_breaker():
+    """第 3 项: 3 部不同的片各失败一次，DMM 才被停站（第 1、2 部各失败一次不停站，第 3 部失败才停站，第二步规则不被破坏）."""
+    clock = VirtualClock()
+    client = _client(clock)
+    calls: list[str] = []
+    _always_403(client, calls)
+
+    original_retry = manager.config.retry
+    manager.config.retry = 5
+    try:
+        with _patch_computed(client), patch.object(base_web.asyncio, "sleep", clock.sleep):
+            # 第 1 部片：内部重试 5 次，但整部片只记 1 次失败；不停站 (circuit_open=False)
+            res1 = await base_web._validate_dmm_image_url(DMM_IMAGE)
+            assert res1 is None
+            state = client._site_ban_states["dmm"]
+            assert state.failure_count == 1
+            assert not state.circuit_open
+            assert not client._is_site_circuit_open("dmm")
+
+            # 模拟时间流逝，度过第 1 部片触发的 60s 站点暂停
+            clock.now += 100
+
+            # 第 2 部片：同样内部重试 5 次，只累计第 2 次失败；依然不停站 (circuit_open=False)
+            res2 = await base_web._validate_dmm_image_url(DMM_IMAGE)
+            assert res2 is None
+            assert state.failure_count == 2
+            assert not state.circuit_open
+            assert not client._is_site_circuit_open("dmm")
+
+            # 再次度过 60s 站点暂停
+            clock.now += 100
+
+            # 第 3 部片：累计达到第 3 次失败，此时断路器触发停站！(circuit_open=True)
+            res3 = await base_web._validate_dmm_image_url(DMM_IMAGE)
+            assert res3 is None
+            assert state.failure_count == 3
+            assert state.circuit_open
+            assert client._is_site_circuit_open("dmm")
+
+            # 断路后后续请求直接抛出 SiteCircuitOpen，不再发起实际网络请求
+            calls_before = len(calls)
+            with pytest.raises(SiteCircuitOpen, match="已断路"):
+                await client.request("GET", DMM_IMAGE)
+            assert len(calls) == calls_before
+    finally:
+        manager.config.retry = original_retry
+        await client.close()
 
 
 @pytest.mark.asyncio
@@ -175,9 +231,51 @@ async def test_interval_enforced_across_requests_to_same_site():
     await client.request("GET", "https://javdb.com/a")
     await client.request("GET", "https://javdb.com/b")
     assert clock.sleeps == [pytest.approx(3.0)]
-    # 另一站点不受影响
+
+    # 明确断言：切换到不同站点（javbus），距离上一次 javdb 请求仅 0 秒，但互不等待
+    sleeps_before = len(clock.sleeps)
     await client.request("GET", "https://javbus.com/a")
-    assert clock.sleeps == [pytest.approx(3.0)]
+    assert len(clock.sleeps) == sleeps_before, "不同站点之间互不等待，请求 javbus 不应增加 sleep"
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_threads_same_site_wait_but_different_sites_do_not_wait():
+    """第 4 项: 两个线程同时请求同一站点，间隔不小于设定值；不同站点之间互不等待."""
+    clock = VirtualClock()
+    client = _client(clock, request_interval=3)
+
+    async def fake_curl_request(*args, **kwargs):
+        url = str(kwargs.get("url") or "")
+        return FakeResponse(status_code=200, content=b"ok", url=url)
+
+    client._curl_request = fake_curl_request  # type: ignore[method-assign]
+
+    # Part A: 同时请求不同站点 (javdb 与 javbus) —— 互不等待 (0 延迟)
+    clock.sleeps.clear()
+    await asyncio.gather(
+        client.request("GET", "https://javdb.com/a1"),
+        client.request("GET", "https://javbus.com/b1"),
+    )
+    assert clock.sleeps == [], "不同站点同时发起的首次请求应当互不等待 (sleep 为空)"
+
+    # Part B: 立即（同一时刻）紧接着请求第三个站点 (mgstage) —— 依然互不等待
+    await client.request("GET", "https://mgstage.com/c1")
+    assert clock.sleeps == [], "向第三个站点发起请求不应受前两个站点影响 (sleep 为空)"
+
+    # Part C: 两个并发任务同时请求「同一站点」(javdb) —— 必须串行等待，间隔 >= 3.0s
+    clock.sleeps.clear()
+    await asyncio.gather(
+        client.request("GET", "https://javdb.com/a2"),
+        client.request("GET", "https://javdb.com/a3"),
+    )
+    assert clock.sleeps == [pytest.approx(3.0), pytest.approx(3.0)], "同一站点并发请求必须分别满足 3.0s 最小间隔"
+
+    # Part D: 在 javdb 刚刚发生过请求的瞬间，立即请求从未请求过的 site D (fanza) —— 互不等待！
+    clock.sleeps.clear()
+    await client.request("GET", "https://fanza.co.jp/d1")
+    assert clock.sleeps == [], "不同站点之间互不等待：请求 site D 不应受 javdb 刚完成的请求阻塞"
+
     await client.close()
 
 
