@@ -114,13 +114,15 @@ class GenericBaseCrawler[T: Context = Context](ABC):
         state = CrawlRequestState(
             is_blocked=lambda: bool(self._site_failure),
             budget=budget,
+            site_name=self.site().value if hasattr(self.site(), "value") else str(self.site()),
+            open_circuit=self._open_circuit,
         )
         token = crawl_request_state.set(state)
         try:
             async with asyncio.timeout_at(budget.deadline) as timeout_ctx:
                 state.timeout_ctx = timeout_ctx
                 data = await self._run(ctx)
-            if data is None and state.request_failed:
+            if data is None and state.request_failed and not state.is_ban_failure:
                 self._open_circuit("允许的请求尝试已耗尽，未取得页面")
             return CrawlerResponse(data=data, debug_info=ctx.debug_info)
         except TimeoutError:
@@ -131,7 +133,7 @@ class GenericBaseCrawler[T: Context = Context](ABC):
         except Exception as e:
             ctx.debug(traceback.format_exc())
             ctx.debug_info.error = e
-            if state.request_failed:
+            if state.request_failed and not state.is_ban_failure:
                 self._open_circuit("允许的请求尝试已耗尽，未取得页面")
             return CrawlerResponse(debug_info=ctx.debug_info)
         finally:

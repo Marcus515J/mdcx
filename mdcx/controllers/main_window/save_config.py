@@ -383,6 +383,7 @@ def save_config(self: "MyMAinWindow"):
         (self.Ui.checkBox_ignore_guochan, DownloadableFile.IGNORE_GUOCHAN),
         (self.Ui.checkBox_ignore_size, DownloadableFile.IGNORE_SIZE),
     )
+    manager.config.trailer_quality_probe = self.Ui.checkBox_trailer_quality_probe.isChecked()
 
     manager.config.keep_files = get_checkboxes(
         (self.Ui.checkBox_old_poster, KeepableFile.POSTER),

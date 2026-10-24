@@ -549,6 +549,7 @@ def load_config(self: "MyMAinWindow"):
             (self.Ui.checkBox_ignore_guochan, DownloadableFile.IGNORE_GUOCHAN),
             (self.Ui.checkBox_ignore_size, DownloadableFile.IGNORE_SIZE),
         )
+        self.Ui.checkBox_trailer_quality_probe.setChecked(manager.config.trailer_quality_probe)
         # 保留文件
         set_checkboxes(
             manager.config.keep_files,
