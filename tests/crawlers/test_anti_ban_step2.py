@@ -657,10 +657,7 @@ async def test_t11_movie_b_in_15s_wait_defers_retry_until_movie_a_pause_ends():
 
     pause_start = 1015.0
     pause_end = site_state.pause_until
-    requests_during_pause = [
-        (u, t) for u, t in request_records
-        if pause_start < t < pause_end
-    ]
+    requests_during_pause = [(u, t) for u, t in request_records if pause_start < t < pause_end]
     assert len(requests_during_pause) == 0, f"暂停期间不应有请求: {requests_during_pause}"
 
     b_requests = [(u, t) for u, t in request_records if "MOVIE-B" in u]

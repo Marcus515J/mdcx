@@ -1956,11 +1956,7 @@ class AsyncWebClient:
     def _record_crawl_failure(self, error: str) -> None:
         state = crawl_request_state.get()
         # A missing number is a normal result, including mirror's terminal 404.
-        if (
-            state is not None
-            and not getattr(state, "is_ban_failure", False)
-            and not re.search(r"\bHTTP 404\b", error)
-        ):
+        if state is not None and not getattr(state, "is_ban_failure", False) and not re.search(r"\bHTTP 404\b", error):
             state.request_failed = True
 
     async def get_text(
