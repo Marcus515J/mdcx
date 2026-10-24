@@ -2808,6 +2808,11 @@ class MyMAinWindow(QMainWindow):
         retry = self.Ui.horizontalSlider_retry.value()
         self.Ui.lcdNumber_retry.display(retry)
 
+    # 设置-请求间隔
+    def lcdNumber_request_interval_change(self):
+        request_interval = self.Ui.horizontalSlider_request_interval.value()
+        self.Ui.lcdNumber_request_interval.display(request_interval)
+
     # 设置-水印大小
     def lcdNumber_mark_size_change(self):
         mark_size = self.Ui.horizontalSlider_mark_size.value()

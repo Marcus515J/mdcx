@@ -884,6 +884,8 @@ def load_config(self: "MyMAinWindow"):
         # 重试次数
         self.Ui.horizontalSlider_retry.setValue(int(manager.config.retry))
         self.Ui.lcdNumber_retry.display(int(manager.config.retry))
+        self.Ui.horizontalSlider_request_interval.setValue(int(manager.config.request_interval))
+        self.Ui.lcdNumber_request_interval.display(int(manager.config.request_interval))
 
         # site config
         site = self.Ui.comboBox_custom_website.currentText()

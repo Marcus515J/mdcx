@@ -8718,6 +8718,48 @@ class Ui_MDCx(object):
         self.gridLayout_9 = QtWidgets.QGridLayout(self.gridLayoutWidget_9)
         self.gridLayout_9.setContentsMargins(0, 0, 0, 0)
         self.gridLayout_9.setObjectName("gridLayout_9")
+        self.label_request_interval = QtWidgets.QLabel(parent=self.gridLayoutWidget_9)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Fixed, QtWidgets.QSizePolicy.Policy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.label_request_interval.sizePolicy().hasHeightForWidth())
+        self.label_request_interval.setSizePolicy(sizePolicy)
+        self.label_request_interval.setMinimumSize(QtCore.QSize(0, 0))
+        self.label_request_interval.setLayoutDirection(QtCore.Qt.LayoutDirection.RightToLeft)
+        self.label_request_interval.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight|QtCore.Qt.AlignmentFlag.AlignTrailing|QtCore.Qt.AlignmentFlag.AlignVCenter)
+        self.label_request_interval.setObjectName("label_request_interval")
+        self.gridLayout_9.addWidget(self.label_request_interval, 6, 0, 1, 1)
+        self.horizontalLayout_request_interval = QtWidgets.QHBoxLayout()
+        self.horizontalLayout_request_interval.setObjectName("horizontalLayout_request_interval")
+        self.horizontalSlider_request_interval = CustomQSlider(parent=self.gridLayoutWidget_9)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Maximum, QtWidgets.QSizePolicy.Policy.Maximum)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.horizontalSlider_request_interval.sizePolicy().hasHeightForWidth())
+        self.horizontalSlider_request_interval.setSizePolicy(sizePolicy)
+        self.horizontalSlider_request_interval.setMinimumSize(QtCore.QSize(300, 30))
+        self.horizontalSlider_request_interval.setMaximumSize(QtCore.QSize(66666, 30))
+        self.horizontalSlider_request_interval.setLayoutDirection(QtCore.Qt.LayoutDirection.LeftToRight)
+        self.horizontalSlider_request_interval.setMinimum(0)
+        self.horizontalSlider_request_interval.setMaximum(30)
+        self.horizontalSlider_request_interval.setPageStep(1)
+        self.horizontalSlider_request_interval.setProperty("value", 3)
+        self.horizontalSlider_request_interval.setOrientation(QtCore.Qt.Orientation.Horizontal)
+        self.horizontalSlider_request_interval.setObjectName("horizontalSlider_request_interval")
+        self.horizontalLayout_request_interval.addWidget(self.horizontalSlider_request_interval)
+        self.lcdNumber_request_interval = QtWidgets.QLCDNumber(parent=self.gridLayoutWidget_9)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Preferred, QtWidgets.QSizePolicy.Policy.Maximum)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.lcdNumber_request_interval.sizePolicy().hasHeightForWidth())
+        self.lcdNumber_request_interval.setSizePolicy(sizePolicy)
+        self.lcdNumber_request_interval.setMinimumSize(QtCore.QSize(30, 30))
+        self.lcdNumber_request_interval.setMaximumSize(QtCore.QSize(70, 30))
+        self.lcdNumber_request_interval.setDigitCount(2)
+        self.lcdNumber_request_interval.setProperty("intValue", 3)
+        self.lcdNumber_request_interval.setObjectName("lcdNumber_request_interval")
+        self.horizontalLayout_request_interval.addWidget(self.lcdNumber_request_interval)
+        self.gridLayout_9.addLayout(self.horizontalLayout_request_interval, 6, 1, 1, 1)
         self.label_103 = QtWidgets.QLabel(parent=self.gridLayoutWidget_9)
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Policy.Minimum, QtWidgets.QSizePolicy.Policy.Fixed)
         sizePolicy.setHorizontalStretch(0)
@@ -8728,7 +8770,7 @@ class Ui_MDCx(object):
         self.label_103.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.ArrowCursor))
         self.label_103.setTextInteractionFlags(QtCore.Qt.TextInteractionFlag.NoTextInteraction)
         self.label_103.setObjectName("label_103")
-        self.gridLayout_9.addWidget(self.label_103, 6, 1, 1, 1)
+        self.gridLayout_9.addWidget(self.label_103, 7, 1, 1, 1)
         self.horizontalLayout_17 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_17.setObjectName("horizontalLayout_17")
         self.checkBox_use_proxy = QtWidgets.QCheckBox(parent=self.gridLayoutWidget_9)
@@ -11070,6 +11112,9 @@ class Ui_MDCx(object):
         self.label_get_cookie_url.setText(_translate("MDCx", "如何获取 Cookie？点击查看教程"))
         self.label_7.setText(_translate("MDCx", "配置教程："))
         self.groupBox_28.setTitle(_translate("MDCx", "网络设置"))
+        self.label_request_interval.setToolTip(_translate("MDCx", "同一站点任意两次请求之间至少间隔的秒数（所有线程合计）；0 表示不限制"))
+        self.label_request_interval.setText(_translate("MDCx", "请求间隔："))
+        self.horizontalSlider_request_interval.setToolTip(_translate("MDCx", "同一站点任意两次请求之间至少间隔的秒数（所有线程合计）；0 表示不限制"))
         self.label_103.setText(_translate("MDCx", "<p>支持 http(s), socks5(h) 代理. 示例: http://127.0.0.1:7897<br>需要用户名和密码时格式为: schema://username:password@host:port<br>Cloudflare Bypass 为空时表示关闭该功能<br>“使用代理”仅控制常规网络请求代理开关，不控制 CF Bypass 代理<br>“CF Bypass代理”仅作用于 bypass 服务请求（mirror/html）</p>"))
         self.checkBox_use_proxy.setToolTip(_translate("MDCx", "仅控制常规网络请求代理开关，不控制 CF Bypass 代理"))
         self.checkBox_use_proxy.setText(_translate("MDCx", "使用代理"))
@@ -11292,7 +11337,19 @@ class Ui_MDCx(object):
 "  <li><b>配置兼容与异常恢复：</b>旧版本配置中的已移除字段在加载时会自动清理并迁移为当前格式，不会触发重置；若因手动修改导致配置读取或校验出错，程序会自动切换为使用数据目录下的 <code>_failed.json</code>，避免破坏原有配置文件。</li>\n"
 "</ul>\n"
 "\n"
-"<h3>十三、来源与致谢、许可证</h3>\n"
+"<h3>十三、防封推荐设置</h3>\n"
+"<p>批量刮削（数百部以上）时，建议按下列取值设置，以降低被站点限制访问的概率。以下仅为推荐值，软件内置默认值未改动；小批量或试用时可保持默认。</p>\n"
+"<ul>\n"
+"  <li><b>「线程数量」：</b>推荐 3～5（内置默认 50）。线程越多，同一时刻向各站点和 CF Bypass 服务发出的请求越密集，更容易触发限制。「设置」的「多线程刮削」中可调；影片数少于线程数时，实际并发数等于影片数（例如只刮 3 部时并发为 3）。</li>\n"
+"  <li><b>「线程间隔(秒)」：</b>推荐 2～5（内置默认 0）。让各部影片错开起跑时间，避免一开始就同时冲击同一站点。</li>\n"
+"  <li><b>「javdb延时(秒)」：</b>保持默认 10 即可。</li>\n"
+"  <li><b>「间歇刮削」：</b>大批量时建议开启「连续刮削」下的间歇休息，例如每刮 30～50 部休息 3～5 分钟，避免长时间持续请求。</li>\n"
+"  <li><b>「重试次数」：</b>推荐 2～3（内置默认 3）。遇到 403/1015 拒绝时，程序已有单独的等待重试和单站断路保护，无需靠加大重试次数。DMM 图片校验的重试在同一部片内最多只向断路器记 1 次失败。</li>\n"
+"  <li><b>「超时时间」：</b>推荐 10～15 秒（内置默认 10）。过短会增加误判和重复请求。</li>\n"
+"  <li><b>「请求间隔」：</b>「设置」的「网络设置」中，同一站点任意两次请求之间至少间隔的秒数（所有线程合计，含图片校验），默认 3，批量刮削推荐 3～5；0 表示不限制。如需单独调整某个站点，可在配置文件的 <code>site_configs.&lt;站点&gt;.request_interval</code> 中覆盖（仅配置文件，界面无入口）。</li>\n"
+"</ul>\n"
+"\n"
+"<h3>十四、来源与致谢、许可证</h3>\n"
 "<p>本软件基于以下开源项目演进开发，特此向各阶段原作者与贡献者致谢：</p>\n"
 "<ul>\n"
 "  <li><b>当前维护仓库：</b><a href=\"https://github.com/Marcus515J/mdcx\">https://github.com/Marcus515J/mdcx</a></li>\n"

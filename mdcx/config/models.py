@@ -131,6 +131,12 @@ class TranslateConfig(BaseModel):
 
 class SiteConfig(BaseModel):
     custom_url: HttpUrl | None = Field(default=None, title="自定义网址")
+    request_interval: float | None = Field(
+        default=None,
+        ge=0,
+        title="最小请求间隔（秒）",
+        description="覆盖公共默认值 Config.request_interval; 0 表示不限制; 仅配置文件可设.",
+    )
 
 
 class FieldConfig(BaseModel):
@@ -674,6 +680,12 @@ class Config(BaseModel):
     site_total_timeout: int = Field(default=120, gt=0, title="单站单番号总等待上限（秒）")
     timeout: int = Field(default=10, title="超时")
     retry: int = Field(default=3, title="重试")
+    request_interval: float = Field(
+        default=3,
+        ge=0,
+        title="最小请求间隔（秒）",
+        description="同一站点任意两次请求之间至少间隔的秒数 (所有线程合计); 0 表示不限制. 可在 site_configs.<站点>.request_interval 单独覆盖.",
+    )
     theporndb_api_token: str = Field(default="", title="Theporndb API令牌")
     javdb: str = Field(default="", title="Javdb")
     fc2ppvdb: str = Field(default="", title="FC2PPVDB")
@@ -779,6 +791,18 @@ class Config(BaseModel):
 
     def get_site_config(self, site: Website) -> SiteConfig:
         return self.site_configs.get(site, SiteConfig())
+
+    def get_site_request_intervals(self) -> dict[str, float]:
+        """各站点在配置文件中单独设置的最小请求间隔 (仅包含已覆盖的站点)."""
+        return {
+            site.value: float(cfg.request_interval)
+            for site, cfg in self.site_configs.items()
+            if cfg.request_interval is not None
+        }
+
+    def get_site_request_interval(self, site: Website | str) -> float:
+        key = site.value if isinstance(site, Website) else str(site).lower()
+        return self.get_site_request_intervals().get(key, float(self.request_interval))
 
     def get_site_url(self, site: Website, default: str = "") -> str:
         """获取指定网站的用户自定义 URL, 结尾无斜杠."""
