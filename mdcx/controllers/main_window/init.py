@@ -241,6 +241,7 @@ def Init_Singal(self: "MyMAinWindow"):
     self.Ui.checkBox_i_understand_clean.stateChanged.connect(self.checkBox_i_agree_clean_clicked)
     self.Ui.horizontalSlider_timeout.valueChanged.connect(self.lcdNumber_timeout_change)
     self.Ui.horizontalSlider_retry.valueChanged.connect(self.lcdNumber_retry_change)
+    self.Ui.horizontalSlider_request_interval.valueChanged.connect(self.lcdNumber_request_interval_change)
     self.Ui.horizontalSlider_mark_size.valueChanged.connect(self.lcdNumber_mark_size_change)
     self.Ui.horizontalSlider_thread.valueChanged.connect(self.lcdNumber_thread_change)
     self.Ui.horizontalSlider_javdb_time.valueChanged.connect(self.lcdNumber_javdb_time_change)

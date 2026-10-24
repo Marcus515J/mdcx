@@ -22,6 +22,7 @@ from ..base.web import (
 )
 from ..config.manager import manager
 from ..models.log_buffer import LogBuffer
+from ..web_async import CrawlRequestState, movie_request_scope
 
 
 @dataclass(slots=True)
@@ -233,6 +234,18 @@ class MediaResourceContext:
         return None
 
     async def _fetch_dmm_content_length(self, client: Any, url: str, retry_delays: list[float]) -> int | None:
+        with movie_request_scope("dmm", self._get_dmm_request_state()):
+            return await self._fetch_dmm_content_length_inner(client, url, retry_delays)
+
+    def _get_dmm_request_state(self) -> CrawlRequestState:
+        """同一部片 (本上下文) 的 DMM 图片校验共用一个请求状态, 最多向断路器记 1 次失败."""
+        state = getattr(self, "_dmm_request_state", None)
+        if state is None:
+            state = CrawlRequestState(is_blocked=lambda: False, site_name="dmm")
+            self._dmm_request_state = state
+        return state
+
+    async def _fetch_dmm_content_length_inner(self, client: Any, url: str, retry_delays: list[float]) -> int | None:
         for attempt, delay in enumerate(retry_delays, start=1):
             response, error = await client.request("GET", url, retry_count=1)
             if response is None:
@@ -262,6 +275,10 @@ class MediaResourceContext:
         return None
 
     async def _check_dmm_image_url(self, url: str) -> tuple[str | None, bool]:
+        with movie_request_scope("dmm", self._get_dmm_request_state()):
+            return await self._check_dmm_image_url_inner(url)
+
+    async def _check_dmm_image_url_inner(self, url: str) -> tuple[str | None, bool]:
         request_url, added_probe = self._build_request_url(url)
         retry_delays = _configured_retry_delays(0.6)
         async with manager.acquire_computed() as computed:

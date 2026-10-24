@@ -175,3 +175,11 @@ def test_field_level_translation_switches_control_translation():
     assert hasattr(title_cfg, "language")
     assert hasattr(outline_cfg, "language")
     assert isinstance(title_cfg.language, Language)
+
+
+def test_textbrowser_about_has_anti_ban_recommendations():
+    about_terms, _, _ = _build_ui_and_controller_corpus()
+    ui_text = Path("mdcx/views/MDCx.ui").read_text(encoding="utf-8")
+    assert "防封推荐设置" in ui_text
+    for term in ("线程数量", "线程间隔(秒)", "javdb延时(秒)", "间歇刮削", "重试次数", "超时时间", "请求间隔"):
+        assert term in about_terms

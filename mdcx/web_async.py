@@ -7,7 +7,8 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from io import BytesIO
@@ -69,9 +70,28 @@ class CrawlRequestState:
     site_name: str = ""
     open_circuit: Callable[[str], None] | None = None
     is_ban_failure: bool = False
+    ban_failure_recorded: bool = False
 
 
 crawl_request_state: ContextVar[CrawlRequestState | None] = ContextVar("crawl_request_state", default=None)
+
+
+@contextmanager
+def movie_request_scope(site_name: str, state: CrawlRequestState | None = None) -> Iterator[CrawlRequestState | None]:
+    """为不经过 BaseCrawler.run 的请求 (如 DMM 图片校验) 提供“一部片”的请求状态.
+
+    已处于爬虫请求状态内时直接沿用 (同一部片共用 1 个失败记录); 否则新建或使用传入的状态,
+    使该范围内的外层重试最多只向断路器记 1 次失败.
+    """
+    if crawl_request_state.get() is not None:
+        yield crawl_request_state.get()
+        return
+    scope_state = state or CrawlRequestState(is_blocked=lambda: False, site_name=site_name)
+    token = crawl_request_state.set(scope_state)
+    try:
+        yield scope_state
+    finally:
+        crawl_request_state.reset(token)
 
 
 def extend_crawl_timeout(seconds: float) -> None:
@@ -402,6 +422,8 @@ class AsyncWebClient:
         cf_bypass_proxy: str | None = None,
         cf_bypass_timeout: float = 90,
         site_total_timeout: float = 120,
+        request_interval: float | None = None,
+        site_request_intervals: Mapping[str, float] | None = None,
         log_fn: Callable[[str], None] | None = None,
         limiters: AsyncWebLimiters | None = None,
     ):
@@ -443,6 +465,13 @@ class AsyncWebClient:
         self._cf_site_min_intervals: dict[str, float] = {
             "javlibrary": 3.0,
         }
+        # 各站最小请求间隔: None 表示未配置公共默认值 (不限制); 站点覆盖值同时作用于 bypass 冷却
+        self._request_interval: float | None = None if request_interval is None else max(float(request_interval), 0.0)
+        self._site_request_intervals: dict[str, float] = {
+            str(k).strip().lower(): max(float(v), 0.0) for k, v in (site_request_intervals or {}).items()
+        }
+        self._cf_site_min_intervals.update(self._site_request_intervals)
+        self._site_last_request_at: dict[str, float] = {}
         self._cf_bypass_timeout = float(cf_bypass_timeout)
         self._cf_bypass_retries = 2
         self._cf_mirror_max_redirects = 8
@@ -882,6 +911,36 @@ class AsyncWebClient:
                 return float(interval)
         return float(self._cf_bypass_min_interval)
 
+    def _get_site_request_interval(self, site_key: str, host: str = "") -> float:
+        key = (site_key or "").strip().lower()
+        if key in self._site_request_intervals:
+            return self._site_request_intervals[key]
+        normalized_host = (host or "").lower()
+        for name, interval in self._site_request_intervals.items():
+            if name in normalized_host:
+                return interval
+        return self._request_interval or 0.0
+
+    async def _wait_for_site_request_interval(self, site_key: str, host: str) -> None:
+        """同一站点任意两次请求之间至少间隔 N 秒 (所有线程合计), 复用 #14 的按键加锁与冷却机制."""
+        interval = self._get_site_request_interval(site_key, host)
+        if interval <= 0:
+            return
+        key = (site_key or host or "default").lower()
+        lock = await self._get_cf_host_lock(f"__interval__:{key}")
+        async with exempt_crawl_timeout():
+            await lock.acquire()
+        try:
+            last = self._site_last_request_at.get(key)
+            if last is not None:
+                wait_seconds = interval - (self._get_time() - last)
+                if wait_seconds > 0:
+                    async with exempt_crawl_timeout():
+                        await self._do_sleep(wait_seconds)
+            self._site_last_request_at[key] = self._get_time()
+        finally:
+            lock.release()
+
     def _parse_retry_after(self, headers: dict[str, Any] | None) -> float | None:
         if not headers:
             return None
@@ -1105,6 +1164,9 @@ class AsyncWebClient:
         state = crawl_request_state.get()
         if state and state.site_name:
             return state.site_name
+        normalized = (host or "").lower()
+        if normalized.endswith(("dmm.co.jp", "dmm.com")):
+            return "dmm"
         return host or "default"
 
     def _is_site_circuit_open(self, site_key: str) -> bool:
@@ -1143,6 +1205,9 @@ class AsyncWebClient:
 
     async def _record_site_success(self, site_key: str) -> None:
         async with self._site_ban_lock:
+            req_state = crawl_request_state.get()
+            if req_state is not None:
+                req_state.ban_failure_recorded = False
             state = self._site_ban_states.get(site_key)
             if state and state.failure_count > 0:
                 state.failure_count = 0
@@ -1154,10 +1219,18 @@ class AsyncWebClient:
             state.last_status_code = status_code
             if state.circuit_open:
                 return
+            req_state = crawl_request_state.get()
+            # 同一部片 (同一 CrawlRequestState) 无论外层重试多少次, 最多记 1 次失败
+            if req_state is not None and req_state.ban_failure_recorded:
+                return
             now = self._get_time()
 
             if now < state.pause_until or request_start_time <= state.last_failure_trigger_time:
+                if req_state is not None:
+                    req_state.ban_failure_recorded = True
                 return
+            if req_state is not None:
+                req_state.ban_failure_recorded = True
 
             state.failure_count += 1
             state.last_failure_trigger_time = now
@@ -1650,6 +1723,7 @@ class AsyncWebClient:
                 raise SiteCircuitOpen(f"站点 {site_key} 已断路，本次运行不再请求")
 
             await self._wait_for_site_pause_if_needed(site_key)
+            await self._wait_for_site_request_interval(site_key, host)
 
             request_start_time = self._get_time()
 

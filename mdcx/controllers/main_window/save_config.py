@@ -613,6 +613,9 @@ def save_config(self: "MyMAinWindow"):
     manager.config.cf_bypass_proxy = self.Ui.lineEdit_cf_bypass_proxy.text().strip()  # Cloudflare bypass 独立代理
     manager.config.timeout = self.Ui.horizontalSlider_timeout.value()  # 超时时间
     manager.config.retry = self.Ui.horizontalSlider_retry.value()  # 重试次数
+    request_interval = self.Ui.horizontalSlider_request_interval.value()  # 最小请求间隔
+    if int(manager.config.request_interval) != request_interval:  # 未改动时保留配置文件里的小数值
+        manager.config.request_interval = request_interval
 
     site = self.Ui.comboBox_custom_website.currentText()
     if site in Website and site != Website.AIRAV.value:

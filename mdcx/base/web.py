@@ -25,6 +25,7 @@ from ..signals import signal
 from ..utils import executor
 from ..utils.file import check_pic_async
 from ..version import normalize_version
+from ..web_async import movie_request_scope
 
 
 class _AdaptiveRequestThrottle:
@@ -247,6 +248,12 @@ def _parse_content_length(value: Any) -> int | None:
 
 
 async def _validate_dmm_image_url(url: str, length: bool = False, real_url: bool = False):
+    # 外层重试共用同一部片的请求状态: 无论重试几次, 最多向断路器记 1 次失败
+    with movie_request_scope("dmm"):
+        return await _validate_dmm_image_url_inner(url, length=length, real_url=real_url)
+
+
+async def _validate_dmm_image_url_inner(url: str, length: bool = False, real_url: bool = False):
     normalized = normalize_media_url(url)
     request_url, added_probe = _build_dmm_probe_url(normalized)
     max_retries = max(int(manager.config.retry), 1)
@@ -307,6 +314,30 @@ async def _validate_dmm_image_url(url: str, length: bool = False, real_url: bool
     return
 
 
+async def _get_dmm_url_content_length(client: Any, normalized: str, retry_delays: list[float]) -> int | None:
+    with movie_request_scope("dmm"):
+        for attempt, delay in enumerate(retry_delays, start=1):
+            response, error = await client.request("GET", normalized, retry_count=1)
+            if response is None:
+                if not _should_retry_link_error(error) or attempt == len(retry_delays):
+                    return None
+                await asyncio.sleep(delay)
+                continue
+
+            true_url = normalize_media_url(str(response.url))
+            if _is_invalid_image_redirect_url(true_url):
+                return None
+
+            if content_length := _parse_content_length(response.headers.get("Content-Length")):
+                return content_length
+            if response.content and len(response.content) > 0:
+                return len(response.content)
+
+            if attempt < len(retry_delays):
+                await asyncio.sleep(delay)
+        return None
+
+
 async def get_url_content_length(url: str) -> int | None:
     normalized = normalize_media_url(url)
     if not normalized:
@@ -317,26 +348,7 @@ async def get_url_content_length(url: str) -> int | None:
     async with manager.acquire_computed() as computed:
         client = computed.async_client
         if is_dmm_image_url(normalized):
-            for attempt, delay in enumerate(retry_delays, start=1):
-                response, error = await client.request("GET", normalized, retry_count=1)
-                if response is None:
-                    if not _should_retry_link_error(error) or attempt == len(retry_delays):
-                        return None
-                    await asyncio.sleep(delay)
-                    continue
-
-                true_url = normalize_media_url(str(response.url))
-                if _is_invalid_image_redirect_url(true_url):
-                    return None
-
-                if content_length := _parse_content_length(response.headers.get("Content-Length")):
-                    return content_length
-                if response.content and len(response.content) > 0:
-                    return len(response.content)
-
-                if attempt < len(retry_delays):
-                    await asyncio.sleep(delay)
-            return None
+            return await _get_dmm_url_content_length(client, normalized, retry_delays)
 
         for attempt, delay in enumerate(retry_delays, start=1):
             response, error = await client.request("HEAD", normalized, retry_count=1)
