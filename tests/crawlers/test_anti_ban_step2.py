@@ -513,14 +513,20 @@ async def test_t8_trailer_quality_probe_disabled():
 
 @pytest.mark.asyncio
 async def test_t9_trailer_quality_probe_enabled_and_default_true():
-    """T9: trailer_quality_probe=true 及旧配置无此键；默认行为与 master 一致。"""
-    # 验证 1: 默认模型反序列化（旧配置无此键）
+    """T9: 默认及旧配置无此键时 trailer_quality_probe=False；显式开启时探测更高画质。"""
+    # 验证 1: 默认实例、旧配置无此键反序列化为 False，显式传 True 时为 True
+    default_cfg = Config()
+    assert default_cfg.trailer_quality_probe is False
+
     empty_cfg = Config.model_validate({})
-    assert empty_cfg.trailer_quality_probe is True
+    assert empty_cfg.trailer_quality_probe is False
 
     json_without_key = '{"timeout": 10}'
     cfg_from_json = Config.model_validate_json(json_without_key)
-    assert cfg_from_json.trailer_quality_probe is True
+    assert cfg_from_json.trailer_quality_probe is False
+
+    explicit_true_cfg = Config(trailer_quality_probe=True)
+    assert explicit_true_cfg.trailer_quality_probe is True
 
     # 验证 2: 开启时发送探测 HEAD 请求，探测更高画质
     original_config = manager.config.trailer_quality_probe
