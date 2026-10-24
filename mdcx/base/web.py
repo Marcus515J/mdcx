@@ -627,7 +627,7 @@ async def get_dmm_trailer(trailer_url: str) -> str:
                                 # 请求成功
                                 if response.status_code == 404:
                                     # 404错误说明转换后的URL不存在，回退到原始URL
-                                    signal.add_log("⚠️ 转换后的URL返回404，回退到原始链接")
+                                    signal.add_log(f"⚠️ 转换后的URL返回404 ({converted_url})，回退到原始链接")
                                     break
                                 elif 200 <= response.status_code < 300:
                                     # 2xx成功，使用转换后的URL
@@ -652,7 +652,7 @@ async def get_dmm_trailer(trailer_url: str) -> str:
                                 # 检查是否为 404 错误
                                 if "404" in str(error):
                                     # 404错误说明转换后的URL不存在，直接回退
-                                    signal.add_log("⚠️ 转换后的URL返回404，回退到原始链接")
+                                    signal.add_log(f"⚠️ 转换后的URL返回404 ({converted_url})，回退到原始链接")
                                     break
                                 else:
                                     # 其他网络错误、超时等，重试

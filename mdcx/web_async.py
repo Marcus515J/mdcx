@@ -1275,6 +1275,7 @@ class AsyncWebClient:
             await self._wait_for_site_pause_if_needed(site_key)
             return True
         else:
+            self._log(f"⚠️ [封禁] {host} 重试返回 {status_text}")
             req_state = crawl_request_state.get()
             if req_state:
                 req_state.is_ban_failure = True
