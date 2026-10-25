@@ -50,6 +50,9 @@ class LLMClient:
             max_retries=0,
         )
         self.limiter = AsyncLimiter(*rate)
+        self.last_error: Exception | None = None
+        self.last_error_type: str | None = None
+        self.last_reasoning_len: int = 0
         self._closed = False
         self._close_requested = False
         self._active_requests = 0
@@ -135,11 +138,36 @@ class LLMClient:
                             temperature=temperature,
                             extra_body=extra_body,
                         )
-                        text = chat.choices[0].message.content if chat.choices else None
+                        message = chat.choices[0].message if chat.choices else None
+                        text = message.content if message else None
+
+                        reasoning = getattr(message, "reasoning_content", None) if message else None
+                        if reasoning is None and message and hasattr(message, "model_extra"):
+                            extra = message.model_extra or {}
+                            reasoning = extra.get("reasoning_content")
+
+                        reasoning_len = 0
+                        if reasoning and isinstance(reasoning, str):
+                            reasoning_len = len(reasoning)
+                        elif text:
+                            think_match = re.search(r"<think>(.*?)</think>", text, flags=re.DOTALL)
+                            if think_match:
+                                reasoning_len = len(think_match.group(1))
+
+                        self.last_reasoning_len = reasoning_len
+                        if reasoning_len > 0:
+                            log_fn(f"🧠 思考内容：有（{reasoning_len} 字符）")
+                        else:
+                            log_fn("🧠 思考内容：无")
+
                         if text:
                             text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+                        self.last_error = None
+                        self.last_error_type = None
                         return text
                     except Exception as e:
+                        self.last_error = e
+                        self.last_error_type = type(e).__name__
                         # Do not log provider bodies, URLs or credentials.
                         log_fn(f"⚠️ LLM API 请求失败: {type(e).__name__}")
                 if attempt + 1 < max_try:

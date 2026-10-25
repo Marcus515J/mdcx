@@ -16,6 +16,7 @@ from ..gen.field_enums import CrawlerResultFields
 from ..models.log_buffer import LogBuffer
 from ..models.types import CrawlersResult
 from ..number import get_number_letters
+from ..signals import signal
 from ..utils import clean_list, get_used_time
 from ..utils.language import is_japanese, is_probably_english_for_translation
 from .mosaic import normalize_mosaic
@@ -248,6 +249,148 @@ def map_actor_names(res: CrawlersResult, all_actors=False):
         res.actors = mapped
 
 
+_COMMON_KANA_NAMES: dict[str, str] = {
+    "ひかる": "希卡露",
+    "かすみ": "架纯",
+    "なつこ": "奈津子",
+    "つぼみ": "蕾",
+    "ゆい": "结衣",
+    "あすか": "明日香",
+    "さくら": "樱",
+    "めぐみ": "惠",
+    "まなみ": "爱美",
+    "ほのか": "穗乃香",
+    "みく": "未来",
+    "りおん": "里绪菜",
+}
+
+_KANA_MAP: dict[str, str] = {
+    "あ": "阿",
+    "い": "伊",
+    "う": "宇",
+    "え": "绘",
+    "お": "绪",
+    "か": "卡",
+    "き": "希",
+    "く": "露",
+    "け": "凯",
+    "こ": "子",
+    "さ": "莎",
+    "し": "西",
+    "す": "素",
+    "せ": "濑",
+    "そ": "索",
+    "た": "塔",
+    "ち": "千",
+    "つ": "津",
+    "て": "特",
+    "と": "藤",
+    "な": "奈",
+    "に": "妮",
+    "ぬ": "奴",
+    "ね": "音",
+    "の": "乃",
+    "は": "羽",
+    "ひ": "希",
+    "ふ": "富",
+    "へ": "海",
+    "ほ": "帆",
+    "ま": "真",
+    "み": "美",
+    "む": "睦",
+    "め": "梅",
+    "も": "桃",
+    "や": "亚",
+    "ゆ": "由",
+    "よ": "代",
+    "ら": "拉",
+    "り": "莉",
+    "る": "露",
+    "れ": "玲",
+    "ろ": "罗",
+    "わ": "和",
+    "を": "沃",
+    "ん": "恩",
+    "が": "佳",
+    "ぎ": "吉",
+    "ぐ": "古",
+    "げ": "盖",
+    "ご": "吾",
+    "ざ": "扎",
+    "じ": "芝",
+    "ず": "祖",
+    "ぜ": "泽",
+    "ぞ": "佐",
+    "だ": "达",
+    "ぢ": "知",
+    "づ": "祖",
+    "で": "德",
+    "ど": "多",
+    "ば": "芭",
+    "び": "碧",
+    "ぶ": "步",
+    "べ": "别",
+    "ぼ": "波",
+    "ぱ": "帕",
+    "ぴ": "皮",
+    "ぷ": "普",
+    "ぺ": "佩",
+    "ぽ": "珀",
+}
+
+
+def _transliterate_kana_name(name: str) -> str:
+    for k, v in _COMMON_KANA_NAMES.items():
+        if k in name:
+            name = name.replace(k, v)
+    chars = []
+    for char in name:
+        hira_code = ord(char)
+        if 0x30A1 <= hira_code <= 0x30F6:
+            hira_char = chr(hira_code - 0x60)
+        else:
+            hira_char = char
+        chars.append(_KANA_MAP.get(hira_char, char))
+    return "".join(chars)
+
+
+def build_actor_constraints(json_data: CrawlersResult) -> dict[str, str]:
+    constraints: dict[str, str] = {}
+    cfg = getattr(manager, "config", None)
+    unknown_actor = getattr(cfg, "actor_no_name", "未知演员").strip() if cfg else "未知演员"
+    all_names = list(dict.fromkeys([a.strip() for a in (json_data.actors + json_data.all_actors) if a and a.strip()]))
+
+    unmapped_names: list[str] = []
+    for name in all_names:
+        if name == unknown_actor:
+            continue
+        # 带拉丁字母的网名、称呼（如 FC2-1013835 的「Q太郎」）照原样保留
+        if re.search(r"[a-zA-Z]", name):
+            constraints[name] = name
+            continue
+
+        actor_data = resources.get_actor_data(name)
+        zh_cn = actor_data.get("zh_cn", "").strip() if actor_data else ""
+        if actor_data.get("has_name") and zh_cn and not is_japanese(zh_cn):
+            constraints[name] = zh_cn
+        else:
+            unmapped_names.append(name)
+
+    # 查不到的，或 zh_cn 栏带假名的，统一本片内译名
+    for name in unmapped_names:
+        converted = zhconv.convert(name, "zh-cn")
+        if is_japanese(converted):
+            mapped = _transliterate_kana_name(converted)
+        else:
+            mapped = converted
+        constraints[name] = mapped
+        for part in re.findall(r"[\u3040-\u30ff]+", name):
+            if part and part not in constraints:
+                constraints[part] = _transliterate_kana_name(part)
+
+    return constraints
+
+
 async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie_number: str):
     title_language = manager.config.get_field_config(CrawlerResultFields.TITLE).language
     title_translate = manager.config.get_field_config(CrawlerResultFields.TITLE).translate
@@ -263,10 +406,9 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
     title_translation_applied = False
     outline_translation_applied = False
 
-    # 处理title
+    # 处理title：中文标题也交给同一套大模型调用做精简
     if title_language != Language.JP:
-        # 使用json_data数据
-        if title_translate and (title_is_jp or title_is_en):
+        if title_translate and json_data.title.strip():
             trans_title = json_data.title
 
     # 处理outline
@@ -277,6 +419,8 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
         and (is_japanese(json_data.outline) or is_probably_english_for_translation(json_data.outline))
     ):
         trans_outline = json_data.outline
+
+    actor_constraints = build_actor_constraints(json_data)
 
     # 翻译
     if manager.config.translate_config.translate_by and (
@@ -295,6 +439,8 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
                 trans_outline,
                 title_language=title_language,
                 outline_language=outline_language,
+                movie_number=movie_number,
+                actor_constraints=actor_constraints,
             )
             if result.title_fallback:
                 title_dest = "转本机备用" if result.title_interface == "本机备用" else "转备用接口"
@@ -310,6 +456,11 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
             if result.translated_title:
                 json_data.title = result.title
                 title_translation_applied = True
+                han_count = len(re.findall(r"[\u4e00-\u9fff]", json_data.title))
+                if han_count > 35:
+                    warn_msg = f"⚠️ 标题超过 35 个汉字（番号：{movie_number}，汉字数：{han_count}）"
+                    LogBuffer.log().write(f"\n {warn_msg}")
+                    signal.add_log(warn_msg)
             if result.translated_outline:
                 json_data.outline = result.outline
                 outline_translation_applied = True

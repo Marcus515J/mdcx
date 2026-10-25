@@ -103,12 +103,15 @@ async def test_real_openai_requests_and_order(server, monkeypatch, path):
             expected = source
         elif path == "fallback_error":
             replies[-1] = "error"
+            replies.append("error")
             expected = source
         elif path == "fallback_empty":
             replies[-1] = " "
+            replies.append(" ")
             expected = source
         elif path == "fallback_linebreaks":
             replies[-1] = "<br />"
+            replies.append("<br />")
             expected = source
         elif path == "disabled_backup":
             replies.pop()
@@ -162,10 +165,18 @@ async def test_real_openai_requests_and_order(server, monkeypatch, path):
     finally:
         await primary.close()
     assert not replies
-    expected_count = 1 if path == "normal" else 2 if path in {"retry", "disabled_backup"} else 3
+    if path in {"fallback_error", "fallback_empty", "fallback_linebreaks"}:
+        expected_count = 4
+    elif path == "normal":
+        expected_count = 1
+    elif path in {"retry", "disabled_backup"}:
+        expected_count = 2
+    else:
+        expected_count = 3
     assert len(calls) == expected_count
+    backup_count = expected_count - min(2, expected_count)
     assert [body["model"] for _, body in calls] == ["HY-MT2-7B-Q8_0"] * min(2, expected_count) + (
-        ["backup"] if expected_count == 3 else []
+        ["backup"] * backup_count
     )
     assert all(body["messages"] == calls[0][1]["messages"] for _, body in calls)
     assert calls[0][0] == "/primary/v1/chat/completions"
@@ -214,7 +225,12 @@ async def test_cloud_primary_with_keyless_local_fallback(server, monkeypatch, pa
     refusal = "抱歉，我无法完成翻译。"
     cloud_replies = [expected] if path == "normal" else [refusal, expected] if path == "retry" else [refusal, refusal]
     if path not in {"normal", "retry"}:
-        local_replies[:] = ["error" if path == "local_error" else refusal if path == "local_refusal" else expected]
+        if path == "local_error":
+            local_replies[:] = ["error", "error"]
+        elif path == "local_refusal":
+            local_replies[:] = [refusal]
+        else:
+            local_replies[:] = [expected]
     if path in {"local_error", "local_refusal"}:
         expected = source
     cfg = Config(
@@ -287,7 +303,7 @@ async def test_cloud_primary_with_keyless_local_fallback(server, monkeypatch, pa
         await primary.close()
     assert len(cloud_calls) == (1 if path == "normal" else 2)
     assert all(body["model"] == "cloud-model" for body in cloud_calls)
-    assert len(local_calls) == (0 if path in {"normal", "retry"} else 1)
+    assert len(local_calls) == (0 if path in {"normal", "retry"} else 2 if path == "local_error" else 1)
     assert not local_replies
     if local_calls:
         endpoint, body = local_calls[0]

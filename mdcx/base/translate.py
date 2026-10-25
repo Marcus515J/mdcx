@@ -1,5 +1,6 @@
 import asyncio
 import re
+import threading
 from dataclasses import dataclass
 
 from httpx import Timeout
@@ -154,12 +155,65 @@ def _is_llm_refusal(text: str, prefixes: list[str]) -> bool:
     return any(prefix.strip() and opening.startswith(prefix.strip().casefold()) for prefix in prefixes)
 
 
+class TranslationBatchTracker:
+    _failures: list[dict[str, str]] = []
+    _lock = threading.Lock()
+
+    @classmethod
+    def record_failure(cls, movie_number: str, field_name: str, failure_type: str = ""):
+        if not movie_number and not field_name:
+            return
+        with cls._lock:
+            cls._failures.append(
+                {
+                    "number": movie_number or "未知番号",
+                    "field": field_name or "未知字段",
+                    "type": failure_type or "未知错误",
+                }
+            )
+
+    @classmethod
+    def get_failures(cls) -> list[dict[str, str]]:
+        with cls._lock:
+            return list(cls._failures)
+
+    @classmethod
+    def clear(cls):
+        with cls._lock:
+            cls._failures.clear()
+
+    @classmethod
+    def format_summary(cls) -> str:
+        with cls._lock:
+            if not cls._failures:
+                return "翻译失败、保留原文清单：无"
+            items = [f"{item['number']}（{item['field']}）" for item in cls._failures]
+            return f"翻译失败、保留原文清单：{'、'.join(items)}"
+
+
+def _on_batch_reset():
+    summary = TranslationBatchTracker.format_summary()
+    signal.show_log_text(
+        f"\n================================================================================\n 📝 {summary}\n================================================================================"
+    )
+    signal.add_log(f"📝 {summary}")
+    TranslationBatchTracker.clear()
+
+
+try:
+    signal.reset_buttons_status.connect(_on_batch_reset)
+except Exception:
+    pass
+
+
 async def _llm_translate(
     text: str,
     prompt_template: str,
     target_language: str = "简体中文",
     details: dict | None = None,
     field_name: str = "",
+    movie_number: str = "",
+    actor_constraints: dict[str, str] | None = None,
 ) -> str | None:
     """Retry refusals and unavailable results, then fallback or preserve the source."""
     if not text:
@@ -175,32 +229,62 @@ async def _llm_translate(
         details["model"] = primary_model
         details["fallback"] = False
 
+    user_prompt = prompt_template.replace("{content}", text).replace("{lang}", target_language)
+    if actor_constraints:
+        constraint_lines = [f"- {orig} -> {trans}" for orig, trans in actor_constraints.items()]
+        user_prompt += "\n\n【本片人名统一约束（必须严格使用以下指定中文译名，不得替换或改写）】\n" + "\n".join(
+            constraint_lines
+        )
+
+    primary_extra_body = None
+    if tc.llm_thinking == "enabled":
+        primary_extra_body = {"thinking": {"type": "enabled"}}
+    elif tc.llm_thinking == "disabled":
+        primary_extra_body = {"thinking": {"type": "disabled"}}
+
     request = {
         "system_prompt": "You are a professional translator.",
-        "user_prompt": prompt_template.replace("{content}", text).replace("{lang}", target_language),
+        "user_prompt": user_prompt,
         "temperature": tc.llm_temperature,
         "max_try": 1 if primary_is_local else tc.llm_max_try,
         "log_fn": signal.add_log,
+        "extra_body": primary_extra_body,
     }
+
+    num_tag = f"[{movie_number}] " if movie_number else ""
+    f_tag = f"{field_name} " if field_name else ""
+
+    last_failure_type = "未知错误"
     async with manager.acquire_computed() as computed:
-        reason = "翻译被拒"
+        primary_client = computed.llm_client
         for attempt in range(tc.llm_refusal_retries + 1):
-            if attempt:
-                signal.add_log(f"🔁 {reason}：重试第 {attempt} 次")
-            translated = await computed.llm_client.ask(model=tc.llm_model, **request)
+            attempt_num = attempt + 1
+            if attempt > 0:
+                signal.add_log(f"🔁 翻译被拒：重试第 {attempt} 次")
+                signal.add_log(f"🔁 {num_tag}{f_tag}主模型 重试第 {attempt_num} 次")
+
+            translated = await primary_client.ask(model=tc.llm_model, **request)
             if not translated or not translated.strip():
-                reason = "翻译不可用（请求失败或空返回）"
-                signal.add_log(f"⚠️ {reason}")
+                failure_type = getattr(primary_client, "last_error_type", None) or "空返回"
+                last_failure_type = failure_type
+                signal.add_log("⚠️ 翻译不可用（请求失败或空返回）")
+                signal.add_log(f"⚠️ {num_tag}{f_tag}主模型 第 {attempt_num} 次尝试失败（{failure_type}）")
                 continue
+
             translated = _normalize_translated_linebreaks(translated)
             if not translated.strip():
-                reason = "翻译不可用（空返回）"
-                signal.add_log(f"⚠️ {reason}")
+                last_failure_type = "空返回"
+                signal.add_log("⚠️ 翻译不可用（请求失败或空返回）")
+                signal.add_log(f"⚠️ {num_tag}{f_tag}主模型 第 {attempt_num} 次尝试失败（空返回）")
                 continue
+
             if not _is_llm_refusal(translated, tc.llm_refusal_prefixes):
                 return translated
+
+            last_failure_type = "被拒"
+            refusal_snippet = translated.strip()[:30].replace("\r", " ").replace("\n", " ")
             signal.add_log("⚠️ 翻译被拒")
-            reason = "翻译被拒"
+            signal.add_log(f"⚠️ {num_tag}{f_tag}主模型 第 {attempt_num} 次尝试被拒（回复前30字：{refusal_snippet}）")
 
         if (
             tc.llm_fallback_url
@@ -221,30 +305,68 @@ async def _llm_translate(
                 details["fallback"] = True
                 details["switch_msg"] = switch_msg
 
+            fallback_extra_body = None
+            if tc.llm_fallback_thinking == "enabled":
+                fallback_extra_body = {"thinking": {"type": "enabled"}}
+            elif tc.llm_fallback_thinking == "disabled":
+                fallback_extra_body = {"thinking": {"type": "disabled"}}
+
+            fallback_request = {
+                **request,
+                "max_try": 1,
+                "temperature": tc.llm_fallback_temperature,
+                "extra_body": fallback_extra_body,
+            }
+
             fallback = LLMClient(
                 api_key=tc.llm_fallback_key,
-                base_url=tc.llm_fallback_url.unicode_string(),
+                base_url=str(tc.llm_fallback_url),
                 proxy=cfg.proxy if cfg.use_proxy else None,
                 timeout=Timeout(cfg.timeout, read=tc.llm_fallback_read_timeout),
                 rate=(max(tc.llm_max_req_sec, 1), max(1, 1 / tc.llm_max_req_sec)),
             )
             try:
-                translated = await fallback.ask(
-                    model=tc.llm_fallback_model,
-                    **{**request, "max_try": 1, "temperature": tc.llm_fallback_temperature},
-                )
-                if translated and translated.strip():
+                # 备用模型遇到连接异常、服务异常或空返回时，再重试 1 次（被判「拒绝」的不重试）
+                fallback_retries = 1
+                for fb_attempt in range(fallback_retries + 1):
+                    fb_attempt_num = fb_attempt + 1
+                    if fb_attempt > 0:
+                        signal.add_log(f"🔁 {num_tag}{f_tag}备用模型 重试第 {fb_attempt_num} 次")
+
+                    translated = await fallback.ask(model=tc.llm_fallback_model, **fallback_request)
+                    if not translated or not translated.strip():
+                        failure_type = getattr(fallback, "last_error_type", None) or "空返回"
+                        last_failure_type = failure_type
+                        signal.add_log("⚠️ 备用模型不可用（请求失败或空返回）")
+                        signal.add_log(f"⚠️ {num_tag}{f_tag}备用模型 第 {fb_attempt_num} 次尝试失败（{failure_type}）")
+                        continue
+
                     translated = _normalize_translated_linebreaks(translated)
-                    if translated.strip() and not _is_llm_refusal(translated, tc.llm_refusal_prefixes):
+                    if not translated.strip():
+                        last_failure_type = "空返回"
+                        signal.add_log("⚠️ 备用模型不可用（空返回）")
+                        signal.add_log(f"⚠️ {num_tag}{f_tag}备用模型 第 {fb_attempt_num} 次尝试失败（空返回）")
+                        continue
+
+                    if not _is_llm_refusal(translated, tc.llm_refusal_prefixes):
                         return translated
-                    signal.add_log("⚠️ 备用模型翻译被拒" if translated.strip() else "⚠️ 备用模型不可用（空返回）")
-                else:
-                    signal.add_log("⚠️ 备用模型不可用（请求失败或空返回）")
+
+                    last_failure_type = "被拒"
+                    refusal_snippet = translated.strip()[:30].replace("\r", " ").replace("\n", " ")
+                    signal.add_log("⚠️ 备用模型翻译被拒")
+                    signal.add_log(
+                        f"⚠️ {num_tag}{f_tag}备用模型 第 {fb_attempt_num} 次尝试被拒（回复前30字：{refusal_snippet}）"
+                    )
+                    # 被判「拒绝」的不重试
+                    break
             finally:
                 await fallback.close()
         else:
             signal.add_log("⚠️ 备用模型未完整配置")
+
     signal.add_log("📝 保留原文")
+    signal.add_log(f"📝 {num_tag}{f_tag}保留原文（失败类型：{last_failure_type}）")
+    TranslationBatchTracker.record_failure(movie_number, field_name, last_failure_type)
     return text
 
 
@@ -268,6 +390,8 @@ async def translate_with_engine(
     outline_language: Language | str,
     title_field_name: str = "标题",
     outline_field_name: str = "简介",
+    movie_number: str = "",
+    actor_constraints: dict[str, str] | None = None,
 ) -> TranslateResult:
     title_details = {}
     outline_details = {}
@@ -284,6 +408,8 @@ async def translate_with_engine(
             get_llm_target_language(title_language),
             details=title_details,
             field_name=t_field_name,
+            movie_number=movie_number,
+            actor_constraints=actor_constraints,
         ),
         _llm_translate(
             outline,
@@ -291,6 +417,8 @@ async def translate_with_engine(
             get_llm_target_language(outline_language),
             details=outline_details,
             field_name=o_field_name,
+            movie_number=movie_number,
+            actor_constraints=actor_constraints,
         ),
     )
     tc = manager.config.translate_config
