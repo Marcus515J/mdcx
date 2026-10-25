@@ -183,3 +183,35 @@ def test_textbrowser_about_has_anti_ban_recommendations():
     assert "防封推荐设置" in ui_text
     for term in ("线程数量", "线程间隔(秒)", "javdb延时(秒)", "间歇刮削", "重试次数", "超时时间", "请求间隔"):
         assert term in about_terms
+
+
+def test_issue_35_acceptance_steps_ui_terms():
+    ui_path = Path("mdcx/views/MDCx.ui")
+    tree = ET.parse(ui_path)
+    root = tree.getroot()
+
+    checks = [
+        ("pushButton_main", "主界面"),
+        ("pushButton_setting", "设置"),
+        ("pushButton_log", "日志"),
+        ("tab2", " 刮削目录 "),
+        ("label_49", "待刮削视频目录："),
+        ("label_241", "当前配置："),
+        ("pushButton_start_cap", "开始"),
+    ]
+    for obj_name, expected_text in checks:
+        node = root.find(f'.//*[@name="{obj_name}"]')
+        assert node is not None, f"Widget {obj_name} not found in MDCx.ui"
+        text = ""
+        for p in node.findall("property"):
+            if p.get("name") == "text":
+                s = p.find("string")
+                if s is not None and s.text:
+                    text = s.text.strip()
+        if not text:
+            for a in node.findall("attribute"):
+                if a.get("name") == "title":
+                    s = a.find("string")
+                    if s is not None and s.text:
+                        text = s.text
+        assert text == expected_text, f"Widget {obj_name} text '{text}' does not match '{expected_text}'"

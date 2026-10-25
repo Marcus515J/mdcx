@@ -9,10 +9,11 @@ from ..base.translate import (
     translate_with_engine,
 )
 from ..base.web import get_actorname
-from ..config.enums import FieldRule, FixedScrapingType, Language, TagInclude
+from ..config.enums import FieldRule, FixedScrapingType, Language, TagInclude, Translator
 from ..config.manager import manager
 from ..config.resources import resources
 from ..gen.field_enums import CrawlerResultFields
+from ..llm import is_loopback_url
 from ..models.log_buffer import LogBuffer
 from ..models.types import CrawlersResult
 from ..number import get_number_letters
@@ -249,118 +250,13 @@ def map_actor_names(res: CrawlersResult, all_actors=False):
         res.actors = mapped
 
 
-_COMMON_KANA_NAMES: dict[str, str] = {
-    "ひかる": "希卡露",
-    "かすみ": "架纯",
-    "なつこ": "奈津子",
-    "つぼみ": "蕾",
-    "ゆい": "结衣",
-    "あすか": "明日香",
-    "さくら": "樱",
-    "めぐみ": "惠",
-    "まなみ": "爱美",
-    "ほのか": "穗乃香",
-    "みく": "未来",
-    "りおん": "里绪菜",
-}
-
-_KANA_MAP: dict[str, str] = {
-    "あ": "阿",
-    "い": "伊",
-    "う": "宇",
-    "え": "绘",
-    "お": "绪",
-    "か": "卡",
-    "き": "希",
-    "く": "露",
-    "け": "凯",
-    "こ": "子",
-    "さ": "莎",
-    "し": "西",
-    "す": "素",
-    "せ": "濑",
-    "そ": "索",
-    "た": "塔",
-    "ち": "千",
-    "つ": "津",
-    "て": "特",
-    "と": "藤",
-    "な": "奈",
-    "に": "妮",
-    "ぬ": "奴",
-    "ね": "音",
-    "の": "乃",
-    "は": "羽",
-    "ひ": "希",
-    "ふ": "富",
-    "へ": "海",
-    "ほ": "帆",
-    "ま": "真",
-    "み": "美",
-    "む": "睦",
-    "め": "梅",
-    "も": "桃",
-    "や": "亚",
-    "ゆ": "由",
-    "よ": "代",
-    "ら": "拉",
-    "り": "莉",
-    "る": "露",
-    "れ": "玲",
-    "ろ": "罗",
-    "わ": "和",
-    "を": "沃",
-    "ん": "恩",
-    "が": "佳",
-    "ぎ": "吉",
-    "ぐ": "古",
-    "げ": "盖",
-    "ご": "吾",
-    "ざ": "扎",
-    "じ": "芝",
-    "ず": "祖",
-    "ぜ": "泽",
-    "ぞ": "佐",
-    "だ": "达",
-    "ぢ": "知",
-    "づ": "祖",
-    "で": "德",
-    "ど": "多",
-    "ば": "芭",
-    "び": "碧",
-    "ぶ": "步",
-    "べ": "别",
-    "ぼ": "波",
-    "ぱ": "帕",
-    "ぴ": "皮",
-    "ぷ": "普",
-    "ぺ": "佩",
-    "ぽ": "珀",
-}
-
-
-def _transliterate_kana_name(name: str) -> str:
-    for k, v in _COMMON_KANA_NAMES.items():
-        if k in name:
-            name = name.replace(k, v)
-    chars = []
-    for char in name:
-        hira_code = ord(char)
-        if 0x30A1 <= hira_code <= 0x30F6:
-            hira_char = chr(hira_code - 0x60)
-        else:
-            hira_char = char
-        chars.append(_KANA_MAP.get(hira_char, char))
-    return "".join(chars)
-
-
-def build_actor_constraints(json_data: CrawlersResult) -> dict[str, str]:
+async def build_actor_constraints(json_data: CrawlersResult, movie_number: str = "") -> dict[str, str]:
     constraints: dict[str, str] = {}
     cfg = getattr(manager, "config", None)
     unknown_actor = getattr(cfg, "actor_no_name", "未知演员").strip() if cfg else "未知演员"
     all_names = list(dict.fromkeys([a.strip() for a in (json_data.actors + json_data.all_actors) if a and a.strip()]))
 
-    unmapped_names: list[str] = []
+    pending_actors: list[str] = []
     for name in all_names:
         if name == unknown_actor:
             continue
@@ -374,19 +270,56 @@ def build_actor_constraints(json_data: CrawlersResult) -> dict[str, str]:
         if actor_data.get("has_name") and zh_cn and not is_japanese(zh_cn):
             constraints[name] = zh_cn
         else:
-            unmapped_names.append(name)
+            pending_actors.append(name)
 
-    # 查不到的，或 zh_cn 栏带假名的，统一本片内译名
-    for name in unmapped_names:
-        converted = zhconv.convert(name, "zh-cn")
-        if is_japanese(converted):
-            mapped = _transliterate_kana_name(converted)
+    if pending_actors:
+        num_tag = f"[{movie_number}] " if movie_number else ""
+        tc = getattr(cfg, "translate_config", None)
+        if tc and Translator.LLM in getattr(tc, "translate_by", []) and not get_translator_skip_reason(Translator.LLM):
+            primary_is_local = is_loopback_url(str(tc.llm_url))
+            primary_extra_body = None
+            if tc.llm_thinking == "enabled":
+                primary_extra_body = {"thinking": {"type": "enabled"}}
+            elif tc.llm_thinking == "disabled":
+                primary_extra_body = {"thinking": {"type": "disabled"}}
+
+            user_prompt = (
+                "请将以下日本演员/人名翻译为简体中文译名。每一行一个，格式必须为：日文原名 -> 中文译名。不得添加任何解释或其他内容。\n"
+                "日文原名列表：\n" + "\n".join(pending_actors)
+            )
+            request = {
+                "system_prompt": "You are a professional Japanese to Chinese translator specializing in Japanese names.",
+                "user_prompt": user_prompt,
+                "temperature": tc.llm_temperature,
+                "max_try": 1 if primary_is_local else tc.llm_max_try,
+                "log_fn": signal.add_log,
+                "extra_body": primary_extra_body,
+            }
+            try:
+                async with manager.acquire_computed() as computed:
+                    primary_client = computed.llm_client
+                    translated = await primary_client.ask(model=tc.llm_model, **request)
+
+                if translated and translated.strip():
+                    parsed_any = False
+                    for raw_line in translated.splitlines():
+                        line = raw_line.strip().lstrip("-*• 	")
+                        delimiter = "->" if "->" in line else ("→" if "→" in line else None)
+                        if delimiter:
+                            orig, trans = line.split(delimiter, 1)
+                            orig = orig.strip().lstrip("-*• 1234567890.、	")
+                            trans = trans.strip()
+                            if orig and trans and orig in pending_actors:
+                                constraints[orig] = trans
+                                parsed_any = True
+                    if not parsed_any:
+                        signal.add_log(f"⚠️ {num_tag}人名对照获取失败")
+                else:
+                    signal.add_log(f"⚠️ {num_tag}人名对照获取失败")
+            except Exception:
+                signal.add_log(f"⚠️ {num_tag}人名对照获取失败")
         else:
-            mapped = converted
-        constraints[name] = mapped
-        for part in re.findall(r"[\u3040-\u30ff]+", name):
-            if part and part not in constraints:
-                constraints[part] = _transliterate_kana_name(part)
+            signal.add_log(f"⚠️ {num_tag}人名对照获取失败")
 
     return constraints
 
@@ -420,7 +353,7 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
     ):
         trans_outline = json_data.outline
 
-    actor_constraints = build_actor_constraints(json_data)
+    actor_constraints = await build_actor_constraints(json_data, movie_number=movie_number)
 
     # 翻译
     if manager.config.translate_config.translate_by and (

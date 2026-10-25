@@ -998,10 +998,16 @@ async def test_actor_mapping_constraints_and_unification(monkeypatch: pytest.Mon
     from mdcx.llm import LLMClient
 
     prompts_captured = []
+    actor_reqs = []
 
     class MockPrimary:
         async def ask(self, **kwargs):
-            prompts_captured.append(("primary", kwargs["user_prompt"]))
+            prompt = kwargs.get("user_prompt", "")
+            if "日文原名列表" in prompt:
+                actor_reqs.append(prompt)
+                # 模拟大模型将未命中/含假名的人名翻译为中文对照
+                return "宮西ひかる -> 宫西光"
+            prompts_captured.append(("primary", prompt))
             return None  # 模拟主模型失败以触发备用模型
 
     @asynccontextmanager
@@ -1042,14 +1048,66 @@ async def test_actor_mapping_constraints_and_unification(monkeypatch: pytest.Mon
 
     await core_translate.translate_title_outline(data, cd_part="", movie_number="TEST-ACTOR-01")
 
+    # 独立短请求把日文人名译成中文对照
+    assert len(actor_reqs) == 1
+    assert "宮西ひかる" in actor_reqs[0]
+
     # 查表命中且不含假名的三上悠亜：同时传给标题、简介，主备都带
     for source, prompt in prompts_captured + fallback_prompts:
         assert "三上悠亜 -> 三上悠亚" in prompt
         # 带拉丁字母的网名 Q太郎 原样保留
         assert "Q太郎 -> Q太郎" in prompt
-        # zh_cn 含假名的宫西ひかる不直接作为查表结果约束，而统一转换为了无假名的约束（希卡露）
+        # zh_cn 含假名的宫西ひかる，使用了大模型返回的中文对照（宫西光）
         assert "宫西ひかる" not in prompt
-        assert "ひかる -> 希卡露" in prompt
+        assert "宮西ひかる -> 宫西光" in prompt
+
+
+@pytest.mark.asyncio
+async def test_actor_translation_failure_logs_and_continues(monkeypatch: pytest.MonkeyPatch):
+    """
+    测试人名对照短请求失败时：日志记录番号和「人名对照获取失败」，不带这部分约束，照常翻译。
+    """
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from mdcx.base import translate as base_translate
+    from mdcx.core import translate as core_translate
+    from mdcx.signals import signal
+
+    signal_logs = []
+    monkeypatch.setattr(signal, "add_log", signal_logs.append)
+
+    prompts_captured = []
+
+    class MockPrimary:
+        async def ask(self, **kwargs):
+            prompt = kwargs.get("user_prompt", "")
+            if "日文原名列表" in prompt:
+                # 模拟人名短请求失败
+                return ""
+            prompts_captured.append(prompt)
+            return "标题或简介译文"
+
+    @asynccontextmanager
+    async def fake_acquire():
+        yield SimpleNamespace(llm_client=MockPrimary())
+
+    monkeypatch.setattr(base_translate.manager, "acquire_computed", fake_acquire)
+
+    tc = base_translate.manager.config.translate_config
+    monkeypatch.setattr(tc, "llm_key", "synthetic-key")
+
+    data = CrawlersResult.empty()
+    data.title = "タイトル"
+    data.outline = "アウトライン"
+    data.actors = ["新人女優"]
+
+    await core_translate.translate_title_outline(data, cd_part="", movie_number="TEST-ACTOR-FAIL")
+
+    # 日志写明番号和「人名对照获取失败」
+    assert any("⚠️ [TEST-ACTOR-FAIL] 人名对照获取失败" in log for log in signal_logs)
+    # 正常继续翻译
+    assert len(prompts_captured) == 2
 
 
 @pytest.mark.asyncio
