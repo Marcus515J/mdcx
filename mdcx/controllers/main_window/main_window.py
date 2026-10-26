@@ -90,6 +90,7 @@ from .load_config import load_config
 from .save_config import save_config
 from .site_priority_dialog import apply_site_priority_theme
 from .style import apply_application_palette, build_menu_style, set_dark_style, set_style
+from .windows_taskbar import WindowsTaskbarProgress
 
 if TYPE_CHECKING:
     from PyQt6.QtGui import QMouseEvent
@@ -105,6 +106,20 @@ WINDOWS_RESERVED_DIR_NAMES = {
     *(f"LPT{i}" for i in range(1, 10)),
 }
 DEFAULT_LINK_DIR_NAME = "unnamed"
+
+
+def _redact_request_log(text: str) -> str:
+    """Keep diagnostic text, masking credential fields before persistence."""
+    text = re.sub(r"(?i)(https?://)[^/\s<>]+@", r"\1[已隐藏]@", text)
+    text = re.sub(
+        r"(?i)([?&](?:api[_-]?key|key|token|access_token|auth|authorization|password|passwd|secret|cookie|signature|sig)=)[^&#\s<>]*",
+        r"\1[已隐藏]",
+        text,
+    )
+    text = re.sub(
+        r"(?im)((?:authorization|proxy-authorization|set-cookie|cookie)[\"']?\s*[:=]\s*)[^\r\n]+", r"\1[已隐藏]", text
+    )
+    return re.sub(r"(?i)((?:api[_-]?key|password|passwd|secret)[\"']?\s*[:=]\s*)[^\s,}\r\n]+", r"\1[已隐藏]", text)
 
 
 class MyMAinWindow(QMainWindow):
@@ -156,6 +171,9 @@ class MyMAinWindow(QMainWindow):
         self.main_log_queue: deque[str] = deque()
         self.main_log_batch_size = 80
         self.main_log_max_count = 10000
+        self._request_log_file = None
+        self._taskbar_progress_active = False
+        self._taskbar_progress = WindowsTaskbarProgress(signal_qt.add_log)
         self.network_check_cancel_event: threading.Event | None = None
         self.network_check_future = None
         self.file_main_open_path = Path()  # 主界面打开的文件路径
@@ -172,6 +190,7 @@ class MyMAinWindow(QMainWindow):
         self.timer = QTimer()  # 初始化一个定时器，用于显示日志
         self.timer.timeout.connect(self.show_detail_log)
         self.timer.timeout.connect(self._flush_main_log_queue)
+        self.timer.timeout.connect(self._update_taskbar_progress)
         self.timer.start(100)  # 设置间隔100毫秒
         self.timer_scrape = QTimer()  # 初始化一个定时器，用于间隔刮削
         self.timer_scrape.timeout.connect(self.auto_scrape)
@@ -586,6 +605,11 @@ class MyMAinWindow(QMainWindow):
         if a0:
             a0.ignore()
 
+    def nativeEvent(self, event_type, message):
+        if IS_WINDOWS and hasattr(self, "_taskbar_progress"):
+            self._taskbar_progress.native_message(int(message))
+        return super().nativeEvent(event_type, message)
+
     # 显示与隐藏窗口标题栏
     def _windows_auto_adjust(self):
         if manager.config.window_title == "hide":  # 隐藏标题栏
@@ -945,6 +969,7 @@ class MyMAinWindow(QMainWindow):
                 return
         if self.Ui.pushButton_start_cap.text() == "■ 停止":
             Flags.stop_requested = True
+            self._clear_taskbar_progress()
             signal_qt.stop = True
             executor.run(save_success_list())
             Flags.rest_time_convert_ = Flags.rest_time_convert
@@ -1046,6 +1071,24 @@ class MyMAinWindow(QMainWindow):
     # 进度条
     def set_processbar(self, value):
         self.Ui.progressBar_scrape.setProperty("value", value)
+        if IS_WINDOWS:
+            if value and not (Flags.stop_requested or signal_qt.stop):
+                self._taskbar_progress_active = True
+                self._update_taskbar_progress()
+            else:
+                self._clear_taskbar_progress()
+
+    def _update_taskbar_progress(self):
+        if IS_WINDOWS and self._taskbar_progress_active:
+            if Flags.stop_requested or signal_qt.stop:
+                self._clear_taskbar_progress()
+            else:
+                self._taskbar_progress.update(int(self.winId()), Flags.scrape_done, Flags.total_count)
+
+    def _clear_taskbar_progress(self):
+        self._taskbar_progress_active = False
+        if IS_WINDOWS:
+            self._taskbar_progress.clear(int(self.winId()))
 
     # region 刮削结果显示
     def _addTreeChild(self, result, filename):
@@ -2210,24 +2253,52 @@ class MyMAinWindow(QMainWindow):
                 with open(filename, "w", encoding="utf-8") as f:
                     f.write(self.Ui.textBrowser_log_main_3.toPlainText().strip())
 
+    def _ensure_log_files(self):
+        log_folder = manager.data_folder / "Log"
+        main_file = Flags.log_txt
+        if main_file is not None and Path(main_file.name).parent != log_folder:
+            main_file.close()
+        if main_file is None or main_file.closed:
+            log_folder.mkdir(parents=True, exist_ok=True)
+            timestamp = time.time()
+            while True:
+                stem = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime(timestamp))
+                main_path = log_folder / f"{stem}.txt"
+                if main_path.exists() or (log_folder / f"{stem}-请求.txt").exists():
+                    timestamp += 1
+                    continue
+                try:
+                    main_file = open(main_path, "xb", buffering=0)
+                    break
+                except FileExistsError:
+                    timestamp += 1
+            Flags.log_txt = main_file
+            self.main_log_queue.appendleft(f"创建日志文件: {main_path}")
+        request_path = Path(main_file.name).with_stem(Path(main_file.name).stem + "-请求")
+        request_file = self._request_log_file
+        if request_file is not None and Path(request_file.name) != request_path:
+            request_file.close()
+        if request_file is None or request_file.closed:
+            # Reopening a closed request file must retain everything already written.
+            self._request_log_file = open(request_path, "ab", buffering=0)
+
     def _write_main_logs_to_file(self, logs: list[str]):
-        if not logs:
+        if not logs or not manager.config.save_log:
             return
-        text = "\n".join(logs) + "\n"
         try:
-            Flags.log_txt.write(text.encode("utf-8"))
+            self._ensure_log_files()
+            Flags.log_txt.write(("\n".join(logs) + "\n").encode("utf-8"))
         except Exception:
-            log_folder = manager.data_folder / "Log"
-            if not os.path.exists(log_folder):
-                os.makedirs(log_folder, exist_ok=True)
-            log_name = time.strftime("%Y-%m-%d-%H-%M-%S", time.localtime()) + ".txt"
-            log_name = log_folder / log_name
-            try:
-                Flags.log_txt = open(log_name, "wb", buffering=0)
-                Flags.log_txt.write(text.encode("utf-8"))
-                self.main_log_queue.appendleft(f"创建日志文件: {log_name}")
-            except Exception:
-                signal_qt.show_traceback_log(traceback.format_exc())
+            signal_qt.show_traceback_log(traceback.format_exc())
+
+    def _write_request_log_to_file(self, text: str):
+        if not text or not manager.config.save_log:
+            return
+        try:
+            self._ensure_log_files()
+            self._request_log_file.write((_redact_request_log(text) + "\n").encode("utf-8"))
+        except Exception:
+            signal_qt.show_traceback_log(traceback.format_exc())
 
     def _flush_main_log_queue(self):
         if not self.main_log_queue:
@@ -2251,6 +2322,7 @@ class MyMAinWindow(QMainWindow):
     # 显示详细日志
     def show_detail_log(self):
         text = signal_qt.get_log()
+        self._write_request_log_to_file(text)
         if text and manager.config.show_web_log:
             self.main_req_logs_show.emit(add_html_plain_text(text))
             if self.req_logs_counts < 10000:
@@ -2259,6 +2331,7 @@ class MyMAinWindow(QMainWindow):
                 self.req_logs_counts = 0
                 self.req_logs_clear.emit("")
                 self.main_req_logs_show.emit(add_html_plain_text(" 🗑️ 日志过多，已清屏！"))
+                self._write_request_log_to_file(" 🗑️ 日志过多，已清屏！")
 
     # 日志页面显示内容
     def show_log_text(self, text):
@@ -3212,6 +3285,7 @@ class MyMAinWindow(QMainWindow):
         )
 
     def reset_buttons_status(self):
+        self._clear_taskbar_progress()
         self.Ui.groupBox_61.setEnabled(True)
         self.Ui.pushButton_start_cap.setEnabled(True)
         self.Ui.pushButton_start_cap2.setEnabled(True)
