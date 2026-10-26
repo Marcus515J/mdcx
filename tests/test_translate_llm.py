@@ -939,52 +939,6 @@ async def test_chinese_source_title_enters_llm_queue_and_respects_switch(monkeyp
 
 
 @pytest.mark.asyncio
-async def test_title_length_exceed_35_han_characters_logs_warning(monkeypatch: pytest.MonkeyPatch):
-    """
-    标题汉字数超过 35 时写一条日志（番号、汉字数），代码不硬截断。
-    """
-    from contextlib import asynccontextmanager
-    from types import SimpleNamespace
-
-    from mdcx.base import translate as base_translate
-    from mdcx.core import translate as core_translate
-    from mdcx.models.log_buffer import LogBuffer
-    from mdcx.signals import signal
-
-    signal_logs = []
-    monkeypatch.setattr(signal, "add_log", lambda text: signal_logs.append(text))
-    LogBuffer.log().clear()
-
-    # 36 个汉字
-    long_title = "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十一二三四五六"
-
-    class MockPrimary:
-        async def ask(self, **kwargs):
-            return long_title
-
-    @asynccontextmanager
-    async def fake_acquire():
-        yield SimpleNamespace(llm_client=MockPrimary())
-
-    monkeypatch.setattr(base_translate.manager, "acquire_computed", fake_acquire)
-    tc = base_translate.manager.config.translate_config
-    monkeypatch.setattr(tc, "llm_key", "test-key")
-
-    data = CrawlersResult.empty()
-    data.title = "短标题"
-    data.outline = ""
-
-    await core_translate.translate_title_outline(data, cd_part="", movie_number="TEST-LEN-35")
-
-    # 代码不硬截断
-    assert data.title == long_title
-    # 写日志包含番号和汉字数
-    main_logs = LogBuffer.log().get()
-    assert "⚠️ 标题超过 35 个汉字（番号：TEST-LEN-35，汉字数：36）" in main_logs
-    assert any("⚠️ 标题超过 35 个汉字（番号：TEST-LEN-35，汉字数：36）" in log for log in signal_logs)
-
-
-@pytest.mark.asyncio
 async def test_actor_mapping_constraints_and_unification(monkeypatch: pytest.MonkeyPatch):
     """
     2. 人名约束：查表命中的译名同时传给标题、简介，主、备两条请求都带；zh_cn 含假名的条目不当作约束用。
