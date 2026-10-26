@@ -101,6 +101,10 @@ class TranslateConfig(BaseModel):
     llm_fallback_model: str = Field(default="", title="备用 LLM 模型 ID")
     llm_fallback_read_timeout: int = Field(default=60, gt=0, title="备用 LLM 超时（秒）")
     llm_fallback_temperature: float = Field(default_factory=lambda data: data["llm_temperature"], title="备用 LLM 温度")
+    llm_thinking: Literal["default", "enabled", "disabled"] = Field(default="default", title="LLM 思考模式")
+    llm_fallback_thinking: Literal["default", "enabled", "disabled"] = Field(
+        default="default", title="备用 LLM 思考模式"
+    )
     local_model_search_root: str = Field(default="", title="本机模型查找盘符或目录")
     local_model_server_path: str = Field(default="", title="本机 llama-server 程序路径")
     local_model_path: str = Field(default="", title="本机 Hy-MT2 模型路径")
@@ -123,6 +127,20 @@ class TranslateConfig(BaseModel):
     @classmethod
     def empty_fallback_url(cls, value):
         return None if isinstance(value, str) and not value.strip() else value
+
+    @field_validator("llm_thinking", "llm_fallback_thinking", mode="before")
+    @classmethod
+    def normalize_thinking_mode(cls, value):
+        if value is None:
+            return "default"
+        if isinstance(value, bool):
+            return "enabled" if value else "disabled"
+        s = str(value).strip().lower()
+        if s in ("enabled", "open", "true", "1", "开"):
+            return "enabled"
+        if s in ("disabled", "close", "false", "0", "关"):
+            return "disabled"
+        return "default"
 
     def model_post_init(self, context) -> None:
         if self.llm_max_req_sec <= 0:

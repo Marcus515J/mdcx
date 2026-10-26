@@ -866,6 +866,8 @@ async def test_translate_llm_single_field_summary_does_not_show_empty_field(monk
         yield SimpleNamespace(llm_client=MockPrimary())
 
     monkeypatch.setattr(base_translate.manager, "acquire_computed", fake_acquire)
+    tc = base_translate.manager.config.translate_config
+    monkeypatch.setattr(tc, "llm_key", "test-key")
 
     data = CrawlersResult.empty()
     data.title = "日本語タイトル"
@@ -876,3 +878,435 @@ async def test_translate_llm_single_field_summary_does_not_show_empty_field(monk
     main_logs = LogBuffer.log().get()
     assert "📝 翻译成功(LLM·云端主模型 deepseek-flash)" in main_logs
     assert "简介" not in main_logs
+
+
+# ==============================================================================
+# Issue #35 / 第六步测试套件
+# ==============================================================================
+
+
+@pytest.mark.asyncio
+async def test_chinese_source_title_enters_llm_queue_and_respects_switch(monkeypatch: pytest.MonkeyPatch):
+    """
+    1. 中文源标题会进入大模型调用（中文标题入队、翻译开关关闭时不入队）。
+    """
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from mdcx.base import translate as base_translate
+    from mdcx.core import translate as core_translate
+    from mdcx.gen.field_enums import CrawlerResultFields
+
+    captured_requests = []
+
+    class MockPrimary:
+        async def ask(self, **kwargs):
+            captured_requests.append(kwargs)
+            return "精简后的最终中文标题"
+
+    @asynccontextmanager
+    async def fake_acquire():
+        yield SimpleNamespace(llm_client=MockPrimary())
+
+    monkeypatch.setattr(base_translate.manager, "acquire_computed", fake_acquire)
+
+    tc = base_translate.manager.config.translate_config
+    monkeypatch.setattr(tc, "llm_url", "https://api.deepseek.com/v1")
+    monkeypatch.setattr(tc, "llm_model", "deepseek-flash")
+    monkeypatch.setattr(tc, "llm_key", "key")
+
+    # 1. 翻译开启：中文标题入队
+    data = CrawlersResult.empty()
+    data.title = "这是一个超过三十五个汉字而且本来就是中文的源标题内容用来测试大模型精简调用"
+    data.outline = ""
+    captured_requests.clear()
+
+    await core_translate.translate_title_outline(data, cd_part="", movie_number="ZH-TEST-01")
+    assert len(captured_requests) == 1
+    assert "这是一个超过三十五个汉字" in captured_requests[0]["user_prompt"]
+    assert data.title == "精简后的最终中文标题"
+
+    # 2. 翻译开关关闭：不入队
+    captured_requests.clear()
+    monkeypatch.setattr(base_translate.manager.config.get_field_config(CrawlerResultFields.TITLE), "translate", False)
+    data_off = CrawlersResult.empty()
+    data_off.title = "原本的中文标题保持不变"
+    data_off.outline = ""
+
+    await core_translate.translate_title_outline(data_off, cd_part="", movie_number="ZH-TEST-02")
+    assert len(captured_requests) == 0
+    assert data_off.title == "原本的中文标题保持不变"
+
+
+@pytest.mark.asyncio
+async def test_title_length_exceed_35_han_characters_logs_warning(monkeypatch: pytest.MonkeyPatch):
+    """
+    标题汉字数超过 35 时写一条日志（番号、汉字数），代码不硬截断。
+    """
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from mdcx.base import translate as base_translate
+    from mdcx.core import translate as core_translate
+    from mdcx.models.log_buffer import LogBuffer
+    from mdcx.signals import signal
+
+    signal_logs = []
+    monkeypatch.setattr(signal, "add_log", lambda text: signal_logs.append(text))
+    LogBuffer.log().clear()
+
+    # 36 个汉字
+    long_title = "一二三四五六七八九十一二三四五六七八九十一二三四五六七八九十一二三四五六"
+
+    class MockPrimary:
+        async def ask(self, **kwargs):
+            return long_title
+
+    @asynccontextmanager
+    async def fake_acquire():
+        yield SimpleNamespace(llm_client=MockPrimary())
+
+    monkeypatch.setattr(base_translate.manager, "acquire_computed", fake_acquire)
+    tc = base_translate.manager.config.translate_config
+    monkeypatch.setattr(tc, "llm_key", "test-key")
+
+    data = CrawlersResult.empty()
+    data.title = "短标题"
+    data.outline = ""
+
+    await core_translate.translate_title_outline(data, cd_part="", movie_number="TEST-LEN-35")
+
+    # 代码不硬截断
+    assert data.title == long_title
+    # 写日志包含番号和汉字数
+    main_logs = LogBuffer.log().get()
+    assert "⚠️ 标题超过 35 个汉字（番号：TEST-LEN-35，汉字数：36）" in main_logs
+    assert any("⚠️ 标题超过 35 个汉字（番号：TEST-LEN-35，汉字数：36）" in log for log in signal_logs)
+
+
+@pytest.mark.asyncio
+async def test_actor_mapping_constraints_and_unification(monkeypatch: pytest.MonkeyPatch):
+    """
+    2. 人名约束：查表命中的译名同时传给标题、简介，主、备两条请求都带；zh_cn 含假名的条目不当作约束用。
+    3. 片内统一：未命中或含假名的保证单片内标题与简介使用同一个中文译名。
+    """
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from mdcx.base import translate as base_translate
+    from mdcx.core import translate as core_translate
+    from mdcx.llm import LLMClient
+
+    prompts_captured = []
+    actor_reqs = []
+
+    class MockPrimary:
+        async def ask(self, **kwargs):
+            prompt = kwargs.get("user_prompt", "")
+            if "日文原名列表" in prompt:
+                actor_reqs.append(prompt)
+                # 模拟大模型将未命中/含假名的人名翻译为中文对照
+                return "宮西ひかる -> 宫西光"
+            prompts_captured.append(("primary", prompt))
+            return None  # 模拟主模型失败以触发备用模型
+
+    @asynccontextmanager
+    async def fake_acquire():
+        yield SimpleNamespace(llm_client=MockPrimary())
+
+    monkeypatch.setattr(base_translate.manager, "acquire_computed", fake_acquire)
+
+    fallback_prompts = []
+
+    async def fake_fallback_ask(self, **kwargs):
+        fallback_prompts.append(("fallback", kwargs["user_prompt"]))
+        return "备用译文"
+
+    monkeypatch.setattr(LLMClient, "ask", fake_fallback_ask)
+
+    # 模拟演员映射资源
+    mock_actor_table = {
+        "三上悠亜": {"zh_cn": "三上悠亚", "has_name": True},
+        "宮西ひかる": {"zh_cn": "宫西ひかる", "has_name": True},  # zh_cn 含假名，不能直接当作约束
+    }
+    monkeypatch.setattr(
+        core_translate.resources,
+        "get_actor_data",
+        lambda name: mock_actor_table.get(name, {"zh_cn": name, "has_name": False}),
+    )
+
+    tc = base_translate.manager.config.translate_config
+    monkeypatch.setattr(tc, "llm_key", "synthetic-key")
+    monkeypatch.setattr(tc, "llm_fallback_url", "http://127.0.0.1:8080/v1")
+    monkeypatch.setattr(tc, "llm_fallback_model", "HY-MT2")
+    monkeypatch.setattr(tc, "llm_fallback_key", "local")
+
+    data = CrawlersResult.empty()
+    data.title = "タイトル"
+    data.outline = "アウトライン"
+    data.actors = ["三上悠亜", "宮西ひかる", "Q太郎"]
+
+    await core_translate.translate_title_outline(data, cd_part="", movie_number="TEST-ACTOR-01")
+
+    # 独立短请求把日文人名译成中文对照
+    assert len(actor_reqs) == 1
+    assert "宮西ひかる" in actor_reqs[0]
+
+    # 查表命中且不含假名的三上悠亜：同时传给标题、简介，主备都带
+    for source, prompt in prompts_captured + fallback_prompts:
+        assert "三上悠亜 -> 三上悠亚" in prompt
+        # 带拉丁字母的网名 Q太郎 原样保留
+        assert "Q太郎 -> Q太郎" in prompt
+        # zh_cn 含假名的宫西ひかる，使用了大模型返回的中文对照（宫西光）
+        assert "宫西ひかる" not in prompt
+        assert "宮西ひかる -> 宫西光" in prompt
+
+
+@pytest.mark.asyncio
+async def test_actor_translation_failure_logs_and_continues(monkeypatch: pytest.MonkeyPatch):
+    """
+    测试人名对照短请求失败时：日志记录番号和「人名对照获取失败」，不带这部分约束，照常翻译。
+    """
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from mdcx.base import translate as base_translate
+    from mdcx.core import translate as core_translate
+    from mdcx.signals import signal
+
+    signal_logs = []
+    monkeypatch.setattr(signal, "add_log", signal_logs.append)
+
+    prompts_captured = []
+
+    class MockPrimary:
+        async def ask(self, **kwargs):
+            prompt = kwargs.get("user_prompt", "")
+            if "日文原名列表" in prompt:
+                # 模拟人名短请求失败
+                return ""
+            prompts_captured.append(prompt)
+            return "标题或简介译文"
+
+    @asynccontextmanager
+    async def fake_acquire():
+        yield SimpleNamespace(llm_client=MockPrimary())
+
+    monkeypatch.setattr(base_translate.manager, "acquire_computed", fake_acquire)
+
+    tc = base_translate.manager.config.translate_config
+    monkeypatch.setattr(tc, "llm_key", "synthetic-key")
+
+    data = CrawlersResult.empty()
+    data.title = "タイトル"
+    data.outline = "アウトライン"
+    data.actors = ["新人女優"]
+
+    await core_translate.translate_title_outline(data, cd_part="", movie_number="TEST-ACTOR-FAIL")
+
+    # 日志写明番号和「人名对照获取失败」
+    assert any("⚠️ [TEST-ACTOR-FAIL] 人名对照获取失败" in log for log in signal_logs)
+    # 正常继续翻译
+    assert len(prompts_captured) == 2
+
+
+@pytest.mark.asyncio
+async def test_fallback_retry_diagnosis_and_batch_failure_summary(monkeypatch: pytest.MonkeyPatch):
+    """
+    4. 兜底：备用遇到异常或空返回重试 1 次，被拒不重试；仍失败保留原文，并写出 c 项日志与批次清单。
+    5. 诊断日志字段齐全（番号、字段、主/备、尝试次数；被拒附回复前 30 字）。
+    """
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+
+    from mdcx.base import translate as base_translate
+    from mdcx.base.translate import TranslationBatchTracker
+    from mdcx.core import translate as core_translate
+    from mdcx.llm import LLMClient
+    from mdcx.signals import signal
+
+    signal_logs = []
+    monkeypatch.setattr(signal, "add_log", lambda text: signal_logs.append(text))
+    TranslationBatchTracker.clear()
+
+    # Case A: 备用模型遇到空返回/异常，重试 1 次（共 2 次），仍失败保留原文
+    class MockPrimaryFail:
+        def __init__(self):
+            self.last_error_type = "APIConnectionError"
+
+        async def ask(self, **kwargs):
+            return None
+
+    @asynccontextmanager
+    async def fake_acquire():
+        yield SimpleNamespace(llm_client=MockPrimaryFail())
+
+    monkeypatch.setattr(base_translate.manager, "acquire_computed", fake_acquire)
+
+    fallback_attempts = []
+
+    async def fake_fallback_ask_fail(self, **kwargs):
+        fallback_attempts.append(1)
+        self.last_error_type = "InternalServerError"
+        return ""
+
+    monkeypatch.setattr(LLMClient, "ask", fake_fallback_ask_fail)
+
+    tc = base_translate.manager.config.translate_config
+    monkeypatch.setattr(tc, "llm_key", "synthetic-key")
+    monkeypatch.setattr(tc, "llm_fallback_url", "http://127.0.0.1:8080/v1")
+    monkeypatch.setattr(tc, "llm_fallback_model", "HY-MT2")
+    monkeypatch.setattr(tc, "llm_fallback_key", "local")
+
+    data = CrawlersResult.empty()
+    data.title = "原文标题A"
+    data.outline = ""
+
+    await core_translate.translate_title_outline(data, cd_part="", movie_number="FAIL-NUM-A")
+
+    # 备用模型重试了 1 次（总共 2 次调用）
+    assert len(fallback_attempts) == 2
+    # 原文保留
+    assert data.title == "原文标题A"
+
+    # 诊断日志：番号、字段、主/备、尝试次数、失败类型
+    assert any("⚠️ [FAIL-NUM-A] 标题 主模型 第 1 次尝试失败（APIConnectionError）" in log for log in signal_logs)
+    assert any("⚠️ [FAIL-NUM-A] 标题 备用模型 第 1 次尝试失败（InternalServerError）" in log for log in signal_logs)
+    assert any("🔁 [FAIL-NUM-A] 标题 备用模型 重试第 2 次" in log for log in signal_logs)
+    assert any("⚠️ [FAIL-NUM-A] 标题 备用模型 第 2 次尝试失败（InternalServerError）" in log for log in signal_logs)
+    assert any("📝 [FAIL-NUM-A] 标题 保留原文（失败类型：InternalServerError）" in log for log in signal_logs)
+
+    # Case B: 备用模型被拒不重试，且记录前 30 字
+    fallback_refusal_attempts = []
+
+    async def fake_fallback_ask_refusal(self, **kwargs):
+        fallback_refusal_attempts.append(1)
+        return "抱歉，由于模型安全策略限制，我无法为您提供该内容的翻译服务。"
+
+    monkeypatch.setattr(LLMClient, "ask", fake_fallback_ask_refusal)
+
+    data_b = CrawlersResult.empty()
+    data_b.title = ""
+    data_b.outline = "あらすじB 日本語の概要"
+
+    await core_translate.translate_title_outline(data_b, cd_part="", movie_number="FAIL-NUM-B")
+
+    # 被判「拒绝」的不重试：只有 1 次
+    assert len(fallback_refusal_attempts) == 1
+    assert data_b.outline == "あらすじB 日本語の概要"
+    assert any(
+        "⚠️ [FAIL-NUM-B] 简介 备用模型 第 1 次尝试被拒（回复前30字：抱歉，由于模型安全策略限制，我无法为您提供该内容的翻译服务。）"
+        in log
+        for log in signal_logs
+    )
+
+    # 批次清单验证
+    summary = TranslationBatchTracker.format_summary()
+    assert "FAIL-NUM-A（标题）" in summary
+    assert "FAIL-NUM-B（简介）" in summary
+    assert summary.startswith("翻译失败、保留原文清单：")
+
+
+def test_thinking_mode_config_and_payload():
+    """
+    6. 思考开关：单元测试证明三个取值分别对应「不发送 / thinking.type=enabled / thinking.type=disabled」；默认值为 default。
+    """
+    from mdcx.config.models import TranslateConfig
+
+    # 默认值
+    tc_default = TranslateConfig()
+    assert tc_default.llm_thinking == "default"
+    assert tc_default.llm_fallback_thinking == "default"
+
+    # 开
+    tc_enabled = TranslateConfig(llm_thinking="enabled", llm_fallback_thinking="开")
+    assert tc_enabled.llm_thinking == "enabled"
+    assert tc_enabled.llm_fallback_thinking == "enabled"
+
+    # 关
+    tc_disabled = TranslateConfig(llm_thinking="disabled", llm_fallback_thinking="关")
+    assert tc_disabled.llm_thinking == "disabled"
+    assert tc_disabled.llm_fallback_thinking == "disabled"
+
+
+@pytest.mark.asyncio
+async def test_thinking_mode_client_payload_and_reasoning_logging(monkeypatch: pytest.MonkeyPatch):
+    """
+    测试 LLMClient 发送 thinking 载荷及思考日志记录。
+    """
+    from types import SimpleNamespace
+
+    from mdcx.llm import LLMClient
+
+    captured_extra_body = []
+    logs = []
+
+    client = LLMClient(
+        api_key="mock",
+        base_url="http://127.0.0.1:8080/v1",
+        timeout=None,
+        rate=(1, 1),
+    )
+
+    async def fake_create(**kwargs):
+        captured_extra_body.append(kwargs.get("extra_body"))
+        choice = SimpleNamespace(
+            message=SimpleNamespace(
+                content="<think>这里是思考过程内容</think>译文结果",
+                reasoning_content=None,
+            )
+        )
+        return SimpleNamespace(choices=[choice])
+
+    monkeypatch.setattr(client.client.chat.completions, "create", fake_create)
+
+    # 1. enabled
+    text = await client.ask(
+        model="deepseek-reasoner",
+        system_prompt="sys",
+        user_prompt="usr",
+        max_try=1,
+        log_fn=lambda msg: logs.append(msg),
+        extra_body={"thinking": {"type": "enabled"}},
+    )
+    assert text == "译文结果"
+    assert captured_extra_body[-1] == {"thinking": {"type": "enabled"}}
+    assert any("🧠 思考内容：有（9 字符）" in log for log in logs)
+
+    # 2. disabled
+    logs.clear()
+    await client.ask(
+        model="deepseek-chat",
+        system_prompt="sys",
+        user_prompt="usr",
+        max_try=1,
+        log_fn=lambda msg: logs.append(msg),
+        extra_body={"thinking": {"type": "disabled"}},
+    )
+    assert captured_extra_body[-1] == {"thinking": {"type": "disabled"}}
+
+    # 3. default (不发送)
+    logs.clear()
+
+    async def fake_create_no_think(**kwargs):
+        captured_extra_body.append(kwargs.get("extra_body"))
+        choice = SimpleNamespace(
+            message=SimpleNamespace(
+                content="普通译文",
+                reasoning_content=None,
+            )
+        )
+        return SimpleNamespace(choices=[choice])
+
+    monkeypatch.setattr(client.client.chat.completions, "create", fake_create_no_think)
+    await client.ask(
+        model="deepseek-chat",
+        system_prompt="sys",
+        user_prompt="usr",
+        max_try=1,
+        log_fn=lambda msg: logs.append(msg),
+        extra_body=None,
+    )
+    assert captured_extra_body[-1] is None
+    assert any("🧠 思考内容：无" in log for log in logs)
+    await client.close()

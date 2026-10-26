@@ -109,7 +109,8 @@ _SERIES_CURRENT_RESUME_RE = re.compile(
     r"処女喪失から.*久しぶりに会ってくれた|"
     r"(?:…|\.\.\.)?実は[０-９0-9]+回目の撮影のあと|"
     r"そんな.+との[０-９0-9]+回目のホテルデートは|"
-    r"今回お届けする作品は撮影時期でいうと"
+    r"今回お届けする作品は撮影時期でいうと|"
+    r"最近は.+で忙しく.*"
     r")"
 )
 
@@ -120,9 +121,6 @@ def _is_related_work_href(href: str) -> bool:
 
 
 def _strip_series_catalog_paragraphs(paragraphs: list[str], last_prequel_link_line_idx: int | None) -> list[str]:
-    if last_prequel_link_line_idx is None:
-        return paragraphs
-
     intro_idx = None
     for idx, line in enumerate(paragraphs):
         if _SERIES_INTRO_HEADER_RE.search(line):
@@ -131,9 +129,11 @@ def _strip_series_catalog_paragraphs(paragraphs: list[str], last_prequel_link_li
     if intro_idx is None:
         return paragraphs
 
-    search_start = max(intro_idx + 1, last_prequel_link_line_idx)
+    search_start = (
+        intro_idx + 1 if last_prequel_link_line_idx is None else max(intro_idx + 1, last_prequel_link_line_idx)
+    )
     resume_idx = None
-    for idx in range(search_start, len(paragraphs)):
+    for idx in range(len(paragraphs) - 1, search_start - 1, -1):
         if _SERIES_CURRENT_RESUME_RE.search(paragraphs[idx]):
             resume_idx = idx
             break

@@ -9,13 +9,15 @@ from ..base.translate import (
     translate_with_engine,
 )
 from ..base.web import get_actorname
-from ..config.enums import FieldRule, FixedScrapingType, Language, TagInclude
+from ..config.enums import FieldRule, FixedScrapingType, Language, TagInclude, Translator
 from ..config.manager import manager
 from ..config.resources import resources
 from ..gen.field_enums import CrawlerResultFields
+from ..llm import is_loopback_url
 from ..models.log_buffer import LogBuffer
 from ..models.types import CrawlersResult
 from ..number import get_number_letters
+from ..signals import signal
 from ..utils import clean_list, get_used_time
 from ..utils.language import is_japanese, is_probably_english_for_translation
 from .mosaic import normalize_mosaic
@@ -248,6 +250,80 @@ def map_actor_names(res: CrawlersResult, all_actors=False):
         res.actors = mapped
 
 
+async def build_actor_constraints(json_data: CrawlersResult, movie_number: str = "") -> dict[str, str]:
+    constraints: dict[str, str] = {}
+    cfg = getattr(manager, "config", None)
+    unknown_actor = getattr(cfg, "actor_no_name", "未知演员").strip() if cfg else "未知演员"
+    all_names = list(dict.fromkeys([a.strip() for a in (json_data.actors + json_data.all_actors) if a and a.strip()]))
+
+    pending_actors: list[str] = []
+    for name in all_names:
+        if name == unknown_actor:
+            continue
+        # 带拉丁字母的网名、称呼（如 FC2-1013835 的「Q太郎」）照原样保留
+        if re.search(r"[a-zA-Z]", name):
+            constraints[name] = name
+            continue
+
+        actor_data = resources.get_actor_data(name)
+        zh_cn = actor_data.get("zh_cn", "").strip() if actor_data else ""
+        if actor_data.get("has_name") and zh_cn and not is_japanese(zh_cn):
+            constraints[name] = zh_cn
+        else:
+            pending_actors.append(name)
+
+    if pending_actors:
+        num_tag = f"[{movie_number}] " if movie_number else ""
+        tc = getattr(cfg, "translate_config", None)
+        if tc and Translator.LLM in getattr(tc, "translate_by", []) and not get_translator_skip_reason(Translator.LLM):
+            primary_is_local = is_loopback_url(str(tc.llm_url))
+            primary_extra_body = None
+            if tc.llm_thinking == "enabled":
+                primary_extra_body = {"thinking": {"type": "enabled"}}
+            elif tc.llm_thinking == "disabled":
+                primary_extra_body = {"thinking": {"type": "disabled"}}
+
+            user_prompt = (
+                "请将以下日本演员/人名翻译为简体中文译名。每一行一个，格式必须为：日文原名 -> 中文译名。不得添加任何解释或其他内容。\n"
+                "日文原名列表：\n" + "\n".join(pending_actors)
+            )
+            request = {
+                "system_prompt": "You are a professional Japanese to Chinese translator specializing in Japanese names.",
+                "user_prompt": user_prompt,
+                "temperature": tc.llm_temperature,
+                "max_try": 1 if primary_is_local else tc.llm_max_try,
+                "log_fn": signal.add_log,
+                "extra_body": primary_extra_body,
+            }
+            try:
+                async with manager.acquire_computed() as computed:
+                    primary_client = computed.llm_client
+                    translated = await primary_client.ask(model=tc.llm_model, **request)
+
+                if translated and translated.strip():
+                    parsed_any = False
+                    for raw_line in translated.splitlines():
+                        line = raw_line.strip().lstrip("-*• 	")
+                        delimiter = "->" if "->" in line else ("→" if "→" in line else None)
+                        if delimiter:
+                            orig, trans = line.split(delimiter, 1)
+                            orig = orig.strip().lstrip("-*• 1234567890.、	")
+                            trans = trans.strip()
+                            if orig and trans and orig in pending_actors:
+                                constraints[orig] = trans
+                                parsed_any = True
+                    if not parsed_any:
+                        signal.add_log(f"⚠️ {num_tag}人名对照获取失败")
+                else:
+                    signal.add_log(f"⚠️ {num_tag}人名对照获取失败")
+            except Exception:
+                signal.add_log(f"⚠️ {num_tag}人名对照获取失败")
+        else:
+            signal.add_log(f"⚠️ {num_tag}人名对照获取失败")
+
+    return constraints
+
+
 async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie_number: str):
     title_language = manager.config.get_field_config(CrawlerResultFields.TITLE).language
     title_translate = manager.config.get_field_config(CrawlerResultFields.TITLE).translate
@@ -263,10 +339,9 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
     title_translation_applied = False
     outline_translation_applied = False
 
-    # 处理title
+    # 处理title：中文标题也交给同一套大模型调用做精简
     if title_language != Language.JP:
-        # 使用json_data数据
-        if title_translate and (title_is_jp or title_is_en):
+        if title_translate and json_data.title.strip():
             trans_title = json_data.title
 
     # 处理outline
@@ -277,6 +352,8 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
         and (is_japanese(json_data.outline) or is_probably_english_for_translation(json_data.outline))
     ):
         trans_outline = json_data.outline
+
+    actor_constraints = await build_actor_constraints(json_data, movie_number=movie_number)
 
     # 翻译
     if manager.config.translate_config.translate_by and (
@@ -295,6 +372,8 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
                 trans_outline,
                 title_language=title_language,
                 outline_language=outline_language,
+                movie_number=movie_number,
+                actor_constraints=actor_constraints,
             )
             if result.title_fallback:
                 title_dest = "转本机备用" if result.title_interface == "本机备用" else "转备用接口"
@@ -310,6 +389,11 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
             if result.translated_title:
                 json_data.title = result.title
                 title_translation_applied = True
+                han_count = len(re.findall(r"[\u4e00-\u9fff]", json_data.title))
+                if han_count > 35:
+                    warn_msg = f"⚠️ 标题超过 35 个汉字（番号：{movie_number}，汉字数：{han_count}）"
+                    LogBuffer.log().write(f"\n {warn_msg}")
+                    signal.add_log(warn_msg)
             if result.translated_outline:
                 json_data.outline = result.outline
                 outline_translation_applied = True

@@ -162,7 +162,7 @@ async def test_backup_api_failure_keeps_source_and_closes(llm):
     cfg.translate_config = TranslateConfig(
         llm_fallback_url="https://api.deepseek.com", llm_fallback_key="mock", llm_fallback_model="deepseek-flash"
     )
-    backup[:] = [None]
+    backup[:] = [None, None]
     assert await translation._llm_translate(SOURCE_OUTLINE, "{content}") == SOURCE_OUTLINE
     assert closed == [True]
 

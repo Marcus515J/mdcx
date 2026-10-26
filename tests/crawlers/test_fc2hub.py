@@ -83,6 +83,7 @@ async def test_fc2hub_crawler_searches_detail_and_sample_api(monkeypatch):
         "FC2-832286",
         "FC2-4676584",
         "FC2-4960750",
+        "FC2-1013835",
     ],
 )
 def test_fc2hub_outline_excludes_scripts_styles_and_watermarks(number: str):
@@ -197,6 +198,15 @@ def test_fc2hub_4851122_excludes_adjacent_works_and_keeps_main_plot():
                 "■購入特典",
                 "◇収録時間",
                 "本作品に登場する人物は18歳以上",
+            ],
+        ),
+        (
+            "FC2-1013835",
+            "最近は学業とアルバイトで忙しくしているということだったので",
+            [
+                "ご存じない方のために簡単に彼女との馴れ初めを",
+                "処女喪失から２ヶ月",
+                "４回目のホテルデートでは",
             ],
         ),
     ],
