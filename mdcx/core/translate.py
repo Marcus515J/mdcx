@@ -389,11 +389,6 @@ async def translate_title_outline(json_data: CrawlersResult, cd_part: str, movie
             if result.translated_title:
                 json_data.title = result.title
                 title_translation_applied = True
-                han_count = len(re.findall(r"[\u4e00-\u9fff]", json_data.title))
-                if han_count > 35:
-                    warn_msg = f"⚠️ 标题超过 35 个汉字（番号：{movie_number}，汉字数：{han_count}）"
-                    LogBuffer.log().write(f"\n {warn_msg}")
-                    signal.add_log(warn_msg)
             if result.translated_outline:
                 json_data.outline = result.outline
                 outline_translation_applied = True
