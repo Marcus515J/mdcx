@@ -63,14 +63,14 @@ def test_request_panel_paired_files_are_written_without_close(window, request_fi
     main = next(p for p in (root / "Log").glob("*.txt") if not p.stem.endswith("-请求"))
     request = main.with_stem(main.stem + "-请求")
     # Read while unbuffered handles are still open, as after an interrupted process.
-    assert "主日志" in main.read_text()
-    assert text in request.read_text()
+    assert "主日志" in main.read_text(encoding="utf-8")
+    assert text in request.read_text(encoding="utf-8")
     assert "思考内容" in displayed[0]
     assert "&lt;test&gt;" in displayed[0]
-    before = request.read_text()
+    before = request.read_text(encoding="utf-8")
     win._request_log_file.close()
     win._write_request_log_to_file("下一行")
-    assert request.read_text() == before + "下一行\n"
+    assert request.read_text(encoding="utf-8") == before + "下一行\n"
 
 
 def test_save_disabled_writes_neither_file_but_still_displays(window):
@@ -97,21 +97,31 @@ def test_save_toggle_does_not_append_while_disabled_and_hidden_panel_still_saved
     signal_qt.add_log("hidden")
     win.show_detail_log()
     request = next((root / "Log").glob("*-请求.txt"))
-    assert "before" in request.read_text() and "hidden" in request.read_text()
-    assert all("disabled" not in p.read_text() for p in (root / "Log").glob("*.txt"))
+    assert "before" in request.read_text(encoding="utf-8") and "hidden" in request.read_text(encoding="utf-8")
+    assert all("disabled" not in p.read_text(encoding="utf-8") for p in (root / "Log").glob("*.txt"))
 
 
 def test_request_credentials_redacted_without_losing_other_diagnostics(window):
     win, _, root = window
     win._write_request_log_to_file(
-        "GET https://user:pass@example.test/path?token=secret-value&id=123\n"
+        "GET https://user:pass@example.test/path?token=secret-value&cookie=synthetic-query-cookie&id=123\n"
         "Authorization: Bearer synthetic-key\nCookie: session=synthetic-cookie\n"
-        "api_key=synthetic-api-key\n思考内容：有（8 字符）"
+        "api_key=synthetic-api-key\nKey: synthetic-plain-key\ntoken=synthetic-token\nsecret='synthetic quoted secret'\n思考内容：有（8 字符）"
     )
-    text = next((root / "Log").glob("*-请求.txt")).read_text()
-    for secret in ("user:pass", "secret-value", "synthetic-key", "synthetic-cookie", "synthetic-api-key"):
+    text = next((root / "Log").glob("*-请求.txt")).read_text(encoding="utf-8")
+    for secret in (
+        "user:pass",
+        "secret-value",
+        "synthetic-key",
+        "synthetic-cookie",
+        "synthetic-api-key",
+        "synthetic-plain-key",
+        "synthetic-token",
+        "synthetic-query-cookie",
+        "synthetic quoted secret",
+    ):
         assert secret not in text
-    assert "example.test/path?token=[已隐藏]&id=123" in text
+    assert "example.test/path?token=[已隐藏]&cookie=[已隐藏]&id=123" in text
     assert "思考内容：有（8 字符）" in text
 
 
@@ -157,7 +167,7 @@ def test_switching_log_folder_keeps_existing_pair_and_non_windows_skips_progress
     monkeypatch.setattr(module.manager, "data_folder", root / "other")
     win._write_request_log_to_file("new folder")
     assert old_pair == {p.name: p.read_bytes() for p in (root / "Log").glob("*.txt")}
-    assert "new folder" in next((root / "other" / "Log").glob("*-请求.txt")).read_text()
+    assert "new folder" in next((root / "other" / "Log").glob("*-请求.txt")).read_text(encoding="utf-8")
     monkeypatch.setattr(module, "IS_WINDOWS", False)
     win.set_processbar(70)
     win._update_taskbar_progress()

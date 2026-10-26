@@ -112,14 +112,20 @@ def _redact_request_log(text: str) -> str:
     """Keep diagnostic text, masking credential fields before persistence."""
     text = re.sub(r"(?i)(https?://)[^/\s<>]+@", r"\1[已隐藏]@", text)
     text = re.sub(
-        r"(?i)([?&](?:api[_-]?key|key|token|access_token|auth|authorization|password|passwd|secret|cookie|signature|sig)=)[^&#\s<>]*",
+        r"(?i)([?&](?:api[_-]?key|key|token|access_token|client_secret|auth|authorization|password|passwd|secret|cookie|signature|sig)=)[^&#\s<>]*",
         r"\1[已隐藏]",
         text,
     )
     text = re.sub(
-        r"(?im)((?:authorization|proxy-authorization|set-cookie|cookie)[\"']?\s*[:=]\s*)[^\r\n]+", r"\1[已隐藏]", text
+        r"(?im)(?<![\w?&-])((?:authorization|proxy-authorization|set-cookie|cookie)[\"']?\s*[:=]\s*)[^\r\n]+",
+        r"\1[已隐藏]",
+        text,
     )
-    return re.sub(r"(?i)((?:api[_-]?key|password|passwd|secret)[\"']?\s*[:=]\s*)[^\s,}\r\n]+", r"\1[已隐藏]", text)
+    return re.sub(
+        r"(?i)(?<![\w?&-])((?:api[_-]?key|key|token|access_token|client_secret|password|passwd|secret)[\"']?\s*[:=]\s*)(?:\"[^\"\r\n]*\"|'[^'\r\n]*'|[^\s,}\r\n]+)",
+        r"\1[已隐藏]",
+        text,
+    )
 
 
 class MyMAinWindow(QMainWindow):
