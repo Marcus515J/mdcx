@@ -215,3 +215,34 @@ def test_issue_35_acceptance_steps_ui_terms():
                     if s is not None and s.text:
                         text = s.text
         assert text == expected_text, f"Widget {obj_name} text '{text}' does not match '{expected_text}'"
+
+
+def test_issue_40_acceptance_steps_ui_terms():
+    root = ET.parse("mdcx/views/MDCx.ui").getroot()
+    checks = [
+        ("pushButton_setting", "text", "设置"),
+        ("pushButton_main", "text", "主界面"),
+        ("pushButton_log", "text", "日志"),
+        ("tab2", "title", "刮削目录"),
+        ("tab5", "title", "高级"),
+        ("label_241", "text", "当前配置："),
+        ("label_49", "text", "待刮削视频目录："),
+        ("groupBox_17", "title", "保存日志"),
+        ("groupBox_3", "title", "调试模式（日志页面）"),
+        ("groupBox_12", "title", "高级功能"),
+        ("radioButton_log_on", "text", "开"),
+        ("checkBox_show_web_log", "text", "显示刮削过程信息"),
+        ("pushButton_select_media_folder_setting_page", "text", "选择目录"),
+        ("pushButton_select_config_folder", "text", "选择目录"),
+        ("pushButton_save_config", "text", "保存"),
+        ("pushButton_start_cap", "text", "开始"),
+    ]
+    for name, prop, expected in checks:
+        node = root.find(f'.//*[@name="{name}"]')
+        assert node is not None, name
+        text = node.findtext(f'property[@name="{prop}"]/string')
+        if text is None:
+            text = node.findtext(f'attribute[@name="{prop}"]/string')
+        assert text is not None and text.strip() == expected, (name, text, expected)
+    for name in ("comboBox_change_config", "lineEdit_config_folder", "lineEdit_movie_path", "textBrowser_log_main_2"):
+        assert root.find(f'.//*[@name="{name}"]') is not None
