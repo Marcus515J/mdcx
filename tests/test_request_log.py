@@ -140,6 +140,21 @@ def test_taskbar_counts_completed_success_and_failure_and_clears_on_end(window, 
     assert not win._taskbar_progress_active
 
 
+def test_native_event_observes_message_and_returns_initialized_result(window, monkeypatch):
+    import ctypes
+    from ctypes.wintypes import MSG
+
+    from PyQt6 import sip
+
+    win, _, _ = window
+    monkeypatch.setattr(module, "IS_WINDOWS", True)
+    message = MSG()
+    pointer = ctypes.addressof(message)
+    result = win.nativeEvent(b"windows_generic_MSG", sip.voidptr(pointer))
+    assert result == (False, 0)
+    win._taskbar_progress.native_message.assert_called_once_with(pointer)
+
+
 def test_confirmed_stop_clears_immediately_and_ignores_late_progress(window, monkeypatch):
     win, config, _ = window
     config.switch_on = []

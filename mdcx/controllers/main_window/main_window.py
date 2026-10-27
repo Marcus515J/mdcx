@@ -614,7 +614,8 @@ class MyMAinWindow(QMainWindow):
     def nativeEvent(self, event_type, message):
         if IS_WINDOWS and hasattr(self, "_taskbar_progress"):
             self._taskbar_progress.native_message(int(message))
-        return super().nativeEvent(event_type, message)
+        # Only observe the message; give Qt an explicit, initialized native result.
+        return False, 0
 
     # 显示与隐藏窗口标题栏
     def _windows_auto_adjust(self):
