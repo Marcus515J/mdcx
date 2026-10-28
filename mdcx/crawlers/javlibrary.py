@@ -7,7 +7,6 @@ from lxml import etree
 
 from ..config.enums import Language, Website
 from ..config.manager import manager
-from ..gen.field_enums import CrawlerResultFields
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
 
 MIRROR_HREF_PATTERN = re.compile(r"(?:^|/)jav[a-z0-9_]+\.html(?:$|[?#])", re.IGNORECASE)
@@ -27,8 +26,9 @@ def get_real_url(html, number, domain_2):
 
     for each in result:
         if new_number in each.replace("-", "").upper():
-            real_url = html.xpath('//div[@id="video_title"]/h3/a[contains(text(), $title)]/@href', title=each)[0]
-            return urllib.parse.urljoin(origin, real_url)
+            hrefs = html.xpath('//div[@id="video_title"]/h3/a[contains(text(), $title)]/@href', title=each)
+            if hrefs:
+                return urllib.parse.urljoin(origin, hrefs[0])
 
     links = html.xpath("//a[@href and @title]")
 
@@ -150,44 +150,12 @@ class JavlibraryCrawler(BaseCrawler):
     def use_proxy(self) -> bool:
         return not manager.config.get_site_config(Website.JAVLIBRARY).custom_url
 
-    def _needs_localized_language(self) -> Language | None:
-        field_languages = [
-            manager.config.get_field_config(field).language
-            for field in (
-                CrawlerResultFields.TITLE,
-                CrawlerResultFields.OUTLINE,
-                CrawlerResultFields.ACTORS,
-                CrawlerResultFields.TAGS,
-                CrawlerResultFields.SERIES,
-                CrawlerResultFields.STUDIO,
-            )
-        ]
-        if Language.ZH_CN in field_languages:
-            return Language.ZH_CN
-        if Language.ZH_TW in field_languages:
-            return Language.ZH_TW
-        return None
-
     @override
     async def _run(self, ctx: Context):
-        requested_language = normalize_language(ctx.input.language)
+        # 一份日文结果供所有字段复用，保留日文演员和原标题；翻译仍由现有流程处理。
         jp_url = ctx.input.appoint_url.replace("/cn/", "/ja/").replace("/tw/", "/ja/")
         jp_data = await self._scrape_language(ctx, Language.JP, jp_url)
-        target_language = requested_language if requested_language in {Language.ZH_CN, Language.ZH_TW} else None
-        target_language = target_language or self._needs_localized_language()
-        if not target_language:
-            result = jp_data.to_result()
-            result.source = self.site().value
-            ctx.debug("数据获取成功！")
-            return result
-
-        localized_url = ""
-        if isinstance(jp_data.external_id, str) and jp_data.external_id:
-            localized_url = jp_data.external_id.replace("/ja/", f"/{language_path(target_language)}/")
-        localized_data = await self._scrape_language(ctx, target_language, localized_url)
-        localized_data.originaltitle = jp_data.originaltitle or jp_data.title
-        localized_data.originalplot = jp_data.originalplot or jp_data.outline
-        result = localized_data.to_result()
+        result = jp_data.to_result()
         result.source = self.site().value
         ctx.debug("数据获取成功！")
         return result
@@ -197,6 +165,7 @@ class JavlibraryCrawler(BaseCrawler):
         lang_path = language_path(language)
         domain_2 = f"{self.base_url}/{lang_path}"
         real_url = appoint_url
+        html_detail = None
         if not real_url:
             search_url = f"{domain_2}/vl_searchbyid.php?keyword={number}"
             ctx.debug(f"搜索地址[{language.value}]: {search_url}")
@@ -207,23 +176,33 @@ class JavlibraryCrawler(BaseCrawler):
             if "Cloudflare" in html_search:
                 raise CralwerException("搜索结果: 被 Cloudflare 5 秒盾拦截！")
             html = etree.fromstring(html_search, etree.HTMLParser())
+            ids = html.xpath('//div[@id="video_id"]/table/tr/td[@class="text"]/text()')
+            if ids:
+                if re.sub(r"\W", "", ids[0]).upper() != re.sub(r"\W", "", number).upper():
+                    raise CralwerException("搜索结果: 详情页番号不匹配！")
+                # 搜索已重定向到本片详情，直接使用正文，不再 GET 同一页。
+                html_detail = html
             real_url = get_real_url(html, number, domain_2)
+            if html_detail is not None and not real_url:
+                real_url = search_url
             if not real_url:
                 raise CralwerException("搜索结果: 未匹配到番号！")
 
         ctx.debug(f"番号地址[{language.value}]: {real_url}")
         ctx.debug_info.detail_urls = [*(ctx.debug_info.detail_urls or []), real_url]
-        html_info, error = await self.async_client.get_text(real_url, use_proxy=self.use_proxy)
-        if html_info is None:
-            raise CralwerException(f"请求错误: {error}")
-        if "Cloudflare" in html_info:
-            raise CralwerException("搜索结果: 被 Cloudflare 5 秒盾拦截！")
-
-        html_detail = etree.fromstring(html_info, etree.HTMLParser())
+        if html_detail is None:
+            html_info, error = await self.async_client.get_text(real_url, use_proxy=self.use_proxy)
+            if html_info is None:
+                raise CralwerException(f"请求错误: {error}")
+            if "Cloudflare" in html_info:
+                raise CralwerException("搜索结果: 被 Cloudflare 5 秒盾拦截！")
+            html_detail = etree.fromstring(html_info, etree.HTMLParser())
         title = get_title(html_detail)
         if not title:
             raise CralwerException("数据获取失败: 未获取到标题！")
         web_number = get_number(html_detail, number)
+        if re.sub(r"\W", "", web_number).upper() != re.sub(r"\W", "", number).upper():
+            raise CralwerException("详情页番号不匹配！")
         title = title.replace(web_number + " ", "")
         release = get_release(html_detail)
         return CrawlerData(

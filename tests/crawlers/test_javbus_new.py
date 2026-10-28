@@ -62,3 +62,42 @@ async def test_javbus_crawler_maps_detail_page():
     assert res.data.directors == ["导演"]
     assert res.data.series == "系列"
     assert res.data.source == "javbus"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("number", "mosaic", "search_path"),
+    [
+        ("HEYZO-3640", "无码", "/uncensored/search/HEYZO-3640&type=0&parent=uc"),
+        ("300MIUM-1369", "有码", "/search/300MIUM-1369&type=&parent=ce"),
+        ("SERO-0124", "有码", "/search/SERO-0124&type=&parent=ce"),
+    ],
+)
+async def test_javbus_404_search_initializes_urls_and_uses_correct_section(number, mosaic, search_path):
+    calls = []
+    detail_url = f"https://www.javbus.com/{number}_1"
+
+    class Client:
+        async def get_text(self, url, **kwargs):
+            calls.append(url)
+            if url == f"https://www.javbus.com/{number}":
+                return None, "404 Not Found"
+            if url == "https://www.javbus.com" + search_path:
+                return f'<a class="movie-box" href="{detail_url}"></a>', ""
+            assert url == detail_url
+            return (
+                f'<html><li class="active"><a>{"無碼" if mosaic == "无码" else "有碼"}</a></li><h3>{number} Sample</h3></html>',
+                "",
+            )
+
+    task_input = CrawlerInput.empty()
+    task_input.number = number
+    task_input.mosaic = mosaic
+    res = await JavbusCrawler(Client(), base_url="https://www.javbus.com").run(task_input)
+
+    assert res.debug_info.error is None
+    assert res.data is not None
+    assert res.data.mosaic == mosaic
+    assert res.debug_info.search_urls == ["https://www.javbus.com" + search_path]
+    assert res.debug_info.detail_urls == [detail_url]
+    assert len(calls) == 3

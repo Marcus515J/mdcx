@@ -127,7 +127,7 @@ async def get_real_url(client, ctx: Context, number, url_type, javbus_url, heade
         url_search = javbus_url + "/uncensored/search/" + number + "&type=0&parent=uc"
 
     ctx.debug(f"搜索地址: {url_search}")
-    ctx.debug_info.search_urls.append(url_search)
+    ctx.debug_info.search_urls = [*(ctx.debug_info.search_urls or []), url_search]
     html_search, error = await client.get_text(url_search, headers=headers)
     if html_search is None:
         raise CralwerException(f"网络请求错误: {error}")
