@@ -94,8 +94,13 @@ def getOutline(html):  # 获取简介
             "Product description",
             "Description",
             "もっとみる",
+            "もっと見る",
             "See more",
+            "看更多",
+            "看更多内容",
+            "看更多內容",
             "查看更多",
+            "查看更多内容",
             "查看更多內容",
         }
     ]

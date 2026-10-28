@@ -58,7 +58,7 @@ class _SiteBanState:
     pause_until: float = 0.0
     last_failure_trigger_time: float = 0.0
     circuit_open: bool = False
-    last_status_code: int = 403
+    last_status_code: int | None = 403
 
 
 @dataclass
@@ -71,6 +71,7 @@ class CrawlRequestState:
     open_circuit: Callable[[str], None] | None = None
     is_ban_failure: bool = False
     ban_failure_recorded: bool = False
+    abandoned_error: str = ""
 
 
 crawl_request_state: ContextVar[CrawlRequestState | None] = ContextVar("crawl_request_state", default=None)
@@ -645,6 +646,8 @@ class AsyncWebClient:
     async def _curl_request(self, *, fingerprint: BrowserFingerprint | None = None, **kwargs) -> Response:
         _check_site_circuit()
         url = str(kwargs.get("url") or "")
+        site_key = self._resolve_site_key(httpx.URL(url).host or "")
+        await self._wait_for_site_pause_if_needed(site_key)
         proxy = kwargs.get("proxy")
         pool_key = HostPoolManager.key_for_request(url, str(proxy) if proxy else None, fingerprint)
         if self._closed or (self._close_requested and self._lease_count() == 0):
@@ -654,6 +657,7 @@ class AsyncWebClient:
         session, generation = await pool.begin_request()
         release_now = True
         try:
+            await self._wait_for_site_pause_if_needed(site_key)
             _check_site_circuit()
             coro = session.request(**kwargs)
             timeout_seconds = self._request_timeout_seconds(kwargs.get("timeout"))
@@ -1213,7 +1217,9 @@ class AsyncWebClient:
                 state.failure_count = 0
                 self._log(f"✅ [封禁] {site_key} 恢复正常，失败计数清零")
 
-    async def _record_site_ban_failure(self, site_key: str, *, status_code: int, request_start_time: float) -> None:
+    async def _record_site_ban_failure(
+        self, site_key: str, *, status_code: int | None, request_start_time: float
+    ) -> None:
         async with self._site_ban_lock:
             state = self._site_ban_states.setdefault(site_key, _SiteBanState())
             state.last_status_code = status_code
@@ -1236,14 +1242,17 @@ class AsyncWebClient:
             state.last_failure_trigger_time = now
             state.pause_until = now + BAN_SITE_PAUSE_SECONDS
 
+            failure = "被拒" if status_code is not None else "CF/bypass 失败"
             self._log(
-                f"⏸️ [封禁] {site_key} 第 {state.failure_count}/{int(BAN_MAX_CONSECUTIVE_FAILURES)} 次被拒，暂停该站 {int(BAN_SITE_PAUSE_SECONDS)}s"
+                f"⏸️ [封禁] {site_key} 第 {state.failure_count}/{int(BAN_MAX_CONSECUTIVE_FAILURES)} 次{failure}，暂停该站 {int(BAN_SITE_PAUSE_SECONDS)}s"
             )
 
             if state.failure_count >= BAN_MAX_CONSECUTIVE_FAILURES:
                 state.circuit_open = True
                 req_state = crawl_request_state.get()
                 reason = f"连续 {int(BAN_MAX_CONSECUTIVE_FAILURES)} 部片被拒绝 ({status_code})，可能已被限制访问"
+                if status_code is None:
+                    reason = f"连续 {int(BAN_MAX_CONSECUTIVE_FAILURES)} 部片请求失败（CF/bypass 或访问受限）"
                 if req_state and req_state.open_circuit:
                     req_state.open_circuit(reason)
                 else:
@@ -1700,6 +1709,9 @@ class AsyncWebClient:
             tuple[Optional[Response], str]: (响应对象, 错误信息)
         """
         try:
+            req_state = crawl_request_state.get()
+            if req_state is not None and req_state.abandoned_error:
+                return None, req_state.abandoned_error
             original_url = url
             url, sanitized = self._sanitize_url(url)
             if sanitized:
@@ -1731,6 +1743,7 @@ class AsyncWebClient:
             retry_count = max(int(self.retry if retry_count is None else retry_count), 1)
             error_msg = ""
             bypass_round = 0
+            bypass_failed = False
             allow_lifetime_rotation = purpose != "download"
             ban_retried = False
 
@@ -1766,6 +1779,7 @@ class AsyncWebClient:
                     limiter = self.limiters.get(host or "default")
                     async with exempt_crawl_timeout():
                         await limiter.acquire()
+                    await self._wait_for_site_pause_if_needed(site_key)
                     req_headers = dict(prepared_headers)
                     req_cookies = self._merge_cookies(cookies)
 
@@ -1827,6 +1841,7 @@ class AsyncWebClient:
                     if bypass_needed:
                         max_bypass_rounds = self._cf_request_bypass_rounds + (1 if ban_retried else 0)
                         if bypass_round >= max_bypass_rounds:
+                            bypass_failed = True
                             error_msg = f"Cloudflare 挑战页持续存在，bypass 已达上限 ({max_bypass_rounds})"
                             retry = False
                             self._log_cf(f"🚫 {error_msg}", host)
@@ -1905,6 +1920,8 @@ class AsyncWebClient:
                             else:
                                 error_msg = f"Cloudflare 挑战页且 bypass 失败: {bypass_error}"
                                 terminal_status = self._extract_terminal_bypass_status(bypass_error)
+                                # Missing pages and ordinary rate limits retain their existing policy.
+                                bypass_failed = terminal_status not in (403, 404, 429)
                                 if terminal_status == 403:
                                     should_retry = await self._handle_ban_action(
                                         host=host,
@@ -2018,6 +2035,11 @@ class AsyncWebClient:
                             self._log_cf(f"⏳ bypass 后退避 {sleep_seconds:.2f}s", host)
                     async with exempt_crawl_timeout():
                         await self._do_sleep(sleep_seconds)
+            if bypass_failed and (req_state := crawl_request_state.get()) is not None:
+                # Internal bypass attempts are already exhausted; do not add another retry.
+                req_state.is_ban_failure = True
+                req_state.abandoned_error = error_msg
+                await self._record_site_ban_failure(site_key, status_code=None, request_start_time=request_start_time)
             self._record_crawl_failure(error_msg)
             return None, f"{method} {url} 失败: {error_msg}"
         except SiteCircuitOpen:
