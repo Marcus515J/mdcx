@@ -7,7 +7,7 @@ from curl_cffi.requests.exceptions import Timeout
 
 from mdcx.crawlers.fc2hub import Fc2hubCrawler
 from mdcx.crawlers.javlibrary import JavlibraryCrawler
-from mdcx.web_async import AsyncWebClient, SiteCircuitOpen
+from mdcx.web_async import AsyncWebClient, SiteCircuitOpen, exempt_crawl_timeout
 from tests.cf_fake_server import FakeBypassServer, ProbeCrawler
 from tests.crawlers.test_anti_ban_step2 import DummyJavCrawler, _crawl_input
 from tests.crawlers.test_javlibrary_429_backoff import FakeResponse
@@ -169,3 +169,81 @@ async def test_real_transport_obeys_pause_and_resets_after_bypass_recovers():
             assert client._site_ban_states["jav321"].failure_count == 0
         finally:
             await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("wait_kind", ["bypass_lock", "site_pause"])
+async def test_exempt_wait_longer_than_movie_budget_does_not_expire_or_open_circuit(probe, wait_kind):
+    probe.client.site_total_timeout = 0.03
+    crawler = DummyJavCrawler(probe.client)
+    release_task = None
+    if wait_kind == "bypass_lock":
+        lock = await probe.client._get_cf_host_lock("www.javlibrary.com")
+        await lock.acquire()
+
+        async def release():
+            await asyncio.sleep(0.08)
+            lock.release()
+
+        release_task = asyncio.create_task(release())
+    else:
+        await crawler.run(_crawl_input("FIRST"))
+
+        async def pause(delay):
+            await asyncio.sleep(0.08)
+            await probe.sleep(delay)
+
+        probe.client._sleep = pause
+    try:
+        await crawler.run(_crawl_input("NEXT"))
+        assert not any("Cannot change state" in line for line in probe.logs)
+        assert not crawler._site_failure
+        assert probe.client._site_ban_states["javlibrary"].failure_count == (1 if wait_kind == "bypass_lock" else 2)
+    finally:
+        if release_task is not None:
+            await release_task
+        await probe.client.close()
+
+
+@pytest.mark.asyncio
+async def test_nested_exempt_wait_does_not_disable_real_work_timeout(probe):
+    probe.client.site_total_timeout = 0.03
+    crawler = DummyJavCrawler(probe.client)
+
+    async def run(ctx):
+        async with exempt_crawl_timeout():
+            await asyncio.sleep(0.04)
+            async with exempt_crawl_timeout():
+                await asyncio.sleep(0.04)
+        await asyncio.sleep(0.1)
+
+    crawler._run = run
+    try:
+        result = await crawler.run(_crawl_input())
+        assert isinstance(result.debug_info.error, TimeoutError)
+        assert not crawler._site_failure
+        assert not any("Cannot change state" in line for line in probe.logs)
+    finally:
+        await probe.client.close()
+
+
+@pytest.mark.asyncio
+async def test_external_cancellation_still_cancels_exempt_wait(probe):
+    crawler = DummyJavCrawler(probe.client)
+    waiting = asyncio.Event()
+
+    async def run(ctx):
+        async with exempt_crawl_timeout():
+            waiting.set()
+            await asyncio.sleep(60)
+
+    crawler._run = run
+    task = asyncio.create_task(crawler.run(_crawl_input()))
+    try:
+        await waiting.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not crawler._site_failure
+    finally:
+        await probe.client.close()

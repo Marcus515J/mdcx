@@ -105,23 +105,28 @@ def extend_crawl_timeout(seconds: float) -> None:
     if budget is not None:
         budget.deadline += seconds
         timeout_ctx = getattr(state, "timeout_ctx", None)
-        if timeout_ctx is not None:
+        if timeout_ctx is not None and not timeout_ctx.expired() and timeout_ctx.when() is not None:
             timeout_ctx.reschedule(budget.deadline)
 
 
 @contextlib.asynccontextmanager
 async def exempt_crawl_timeout():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
+    state = crawl_request_state.get()
+    budget = getattr(state, "budget", None)
+    timeout_ctx = getattr(state, "timeout_ctx", None)
+    # Only the outer exemption owns the timer; nested waits must not double-count.
+    if budget is None or timeout_ctx is None or timeout_ctx.expired() or timeout_ctx.when() is None:
         yield
         return
+    loop = asyncio.get_running_loop()
     start_time = loop.time()
+    timeout_ctx.reschedule(None)
     try:
         yield
     finally:
-        elapsed = loop.time() - start_time
-        extend_crawl_timeout(elapsed)
+        budget.deadline += loop.time() - start_time
+        if not timeout_ctx.expired():
+            timeout_ctx.reschedule(budget.deadline)
 
 
 def _check_site_circuit() -> None:
