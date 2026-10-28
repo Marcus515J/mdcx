@@ -24,7 +24,6 @@ if TYPE_CHECKING:
 MULTI_LANGUAGE_WEBSITES = [  # 支持多语言, language 参数有意义
     Website.AIRAV_CC,
     Website.IQQTV,
-    Website.JAVLIBRARY,
 ]
 SPECIFIC_CRAWLER_TITLE_LANGUAGE_SITES = {
     Website.AIRAV_CC,
