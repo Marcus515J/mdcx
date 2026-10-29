@@ -217,6 +217,8 @@ class JavlibraryCrawler(BaseCrawler):
             year=get_year(release),
             runtime=get_runtime(html_detail),
             score=get_score(html_detail),
+            # JavLibrary 评分为 5 分制（页面以 5 星展示，分值不超过 5）；页面不提供投票人数
+            score_max="5",
             series="",
             directors=split_csv(get_director(html_detail)),
             studio=get_studio(html_detail),

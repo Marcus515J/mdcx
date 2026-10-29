@@ -11,7 +11,7 @@ from ..manual import ManualConfig
 from ..models.enums import FileMode
 from ..models.flags import Flags
 from ..models.log_buffer import LogBuffer
-from ..models.types import CrawlerInput, CrawlerResponse, CrawlerResult, CrawlersResult, CrawlTask
+from ..models.types import CrawlerInput, CrawlerResponse, CrawlerResult, CrawlersResult, CrawlTask, score_to_10
 from ..number import is_uncensored
 from ..utils.dataclass import update
 from .mosaic import is_guochan_mosaic, is_plain_uncensored_mosaic, normalize_mosaic
@@ -308,6 +308,8 @@ class FileScraper:
             and getattr(self.config, "field_priority_try_all_images", False)
         )
         image_fields = {CrawlerResultFields.THUMB, CrawlerResultFields.POSTER}
+        score_chain: list[Website] = []
+        wanted_chain: list[Website] = []
 
         # 按字段分别处理，每个字段按优先级尝试获取
         for field in ManualConfig.REDUCED_FIELDS:
@@ -319,6 +321,10 @@ class FileScraper:
                 type_field_config = f_config
             f_sites = [s for s in type_field_config.site_prority if s in type_site_set]
             f_lang = f_config.language
+            if field == CrawlerResultFields.SCORE:
+                score_chain = f_sites
+            elif field == CrawlerResultFields.WANTED:
+                wanted_chain = f_sites
 
             reduced.field_log += (
                 f"\n\n    📌 {field} \n    ====================================\n"
@@ -405,6 +411,10 @@ class FileScraper:
                     reduced.image_download = site_data.image_download
                 elif field == CrawlerResultFields.ORIGINALTITLE and site_data.actor:
                     reduced.amazon_orginaltitle_actor = site_data.actor.split(",")[0]
+                elif field == CrawlerResultFields.SCORE and is_primary_field_value:
+                    # 满分与评分人数必须与最终评分同来源
+                    reduced.score_max = site_data.score_max
+                    reduced.score_count = site_data.score_count
 
                 # 保存数据
                 if is_primary_field_value:
@@ -421,6 +431,30 @@ class FileScraper:
         # 所有来源均失败
         if len(all_res) == 0:
             return None
+
+        # 评分汇总日志: 记录评分/想看链上各站的原始评分、满分、评分人数与想看人数
+        score_summary = "\n\n    📊 评分汇总\n    ===================================="
+        for site in dict.fromkeys([*score_chain, *wanted_chain]):
+            site_data = next((d for (s, _), d in all_res.items() if s == site), None)
+            if site_data is None:
+                state = "失败" if any(s == site for s, _ in failed) else "未调用"
+                score_summary += f"\n    ⚪ {site:<15} ({state})"
+                continue
+            site_score = f"{site_data.score}/{site_data.score_max}" if site_data.score else "无"
+            score_summary += (
+                f"\n    🌐 {site:<15} 评分 {site_score},"
+                f" 评分人数 {site_data.score_count or '未知'}, 想看人数 {site_data.wanted or '无'}"
+            )
+        final_rating = score_to_10(reduced.score, reduced.score_max)
+        rating_note = final_rating or ("满分未知或为 0, 不写" if reduced.score else "无评分, 不写")
+        score_summary += (
+            f"\n    ✅ 最终: rating(10分制) {rating_note}, 来源"
+            f" {reduced.field_sources.get(CrawlerResultFields.SCORE) or '无'};"
+            f" votes(评分人数) {reduced.score_count or '不写'};"
+            f" wanted(想看人数) {reduced.wanted or '无'}, 来源"
+            f" {reduced.field_sources.get(CrawlerResultFields.WANTED) or '无'}"
+        )
+        reduced.field_log += score_summary
 
         if use_type_field_config and hasattr(self.config, "get_type_field_config"):
             poster_priority_config = self.config.get_type_field_config(

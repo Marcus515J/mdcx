@@ -196,6 +196,11 @@ class MonoParser(DetailPageParser):
         return score.replace("点", "")
 
     @override
+    async def score_max(self, ctx, html) -> str:
+        # DMM 用户评分为 5 点満点
+        return "5" if await self.score(ctx, html) else ""
+
+    @override
     async def trailer(self, ctx, html) -> FieldRes[str]:
         html_content = html.get() or ""
         if not html_content:
@@ -236,6 +241,8 @@ class RentalParser(MonoParser):
 
 class AggregateRating(BaseModel):
     ratingValue: float | None = None
+    bestRating: float | None = None
+    ratingCount: int | None = None
 
 
 class Actor(BaseModel):
@@ -301,6 +308,10 @@ class DigitalParser(DetailPageParser):
                 rating = json_data.aggregateRating.ratingValue
                 if rating is not None:
                     d.score = str(rating)
+                    # schema.org: bestRating 缺省时按 5 处理
+                    d.score_max = f"{json_data.aggregateRating.bestRating or 5:g}"
+                    if json_data.aggregateRating.ratingCount is not None:
+                        d.score_count = str(json_data.aggregateRating.ratingCount)
         except Exception as e:
             ctx.debug(f"解析 JSON-LD 失败: {e} {json_data=}")
             pass

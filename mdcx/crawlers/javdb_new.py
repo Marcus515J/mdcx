@@ -112,6 +112,16 @@ class Parser(DetailPageParser):
         except Exception:
             return ""
 
+    async def score_max(self, ctx, html: Selector) -> str:
+        # JavDB 评分为 5 星制（score-stars），页面分值形如「4.36分」
+        return "5" if await self.score(ctx, html) else ""
+
+    async def score_count(self, ctx, html: Selector) -> str:
+        # 评分旁文本形如「由 1,234 人評價」；取不到则留空，不与其他人数混用
+        result = " ".join(extract_all_texts(html, "//span[@class='score-stars']/../text()"))
+        match = re.search(r"([\d,]+)\s*(?:人評價|人评价|人が評価|users? rated)", result)
+        return match.group(1).replace(",", "") if match else ""
+
     async def wanted(self, ctx, html: Selector) -> str:
         html_text = html.get()
         result = re.search(r"(\d+)(人想看| want to watch it)", html_text)

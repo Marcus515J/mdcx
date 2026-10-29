@@ -33,8 +33,8 @@ class SamplePicture(BaseModel):
 
 
 class ReviewSummary(BaseModel):
-    averagePoint: float = 0.0
-    # reviewerCount: int = 0
+    averagePoint: float | None = None
+    reviewerCount: int | None = None
     # reviewCommentCount: int = 0
 
 

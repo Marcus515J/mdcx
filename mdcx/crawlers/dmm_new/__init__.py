@@ -1083,6 +1083,8 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
         else:
             self._log(f"🟠 预告片[最终]: cid={content_cid} 未获取到可用链接")
 
+        review = data.reviewSummary
+        score = "" if review is None or review.averagePoint is None else str(review.averagePoint)
         return CrawlerData(
             title=str(data.title or ""),
             outline=str(data.description or ""),
@@ -1092,7 +1094,10 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             actors=[a.name for a in (data.actresses or []) if a and a.name],
             poster=str(data.packageImage or ""),
             thumb=str(data.packageLargeImage or ""),
-            score="" if data.reviewSummary is None else str(data.reviewSummary.averagePoint),
+            score=score,
+            # DMM 用户评分为 5 点満点
+            score_max="5" if score else "",
+            score_count="" if review is None or review.reviewerCount is None else str(review.reviewerCount),
             series="" if data.series is None else str(data.series.name or ""),
             directors=[d.name for d in (data.directors or []) if d and d.name],
             studio="" if data.maker is None else str(data.maker.name or ""),
@@ -1127,6 +1132,8 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
         if r := [item.staffName for item in data.staffs if item.roleName in ["制作プロダクション", "制作", "制作著作"]]:
             studio = r[0]
 
+        review = data.reviewSummary
+        score = "" if review.averagePoint is None else str(review.averagePoint)
         return CrawlerData(
             title=data.titleName,
             outline=data.description,
@@ -1136,7 +1143,10 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             tags=[item.name for item in data.genres],
             release=data.startPublicAt,  # 2025-05-17T20:00:00Z
             year=str(data.productionYear),
-            score=str(data.reviewSummary.averagePoint),
+            score=score,
+            # DMM 用户评分为 5 点満点
+            score_max="5" if score else "",
+            score_count="" if review.reviewerCount is None else str(review.reviewerCount),
             directors=[item.staffName for item in data.staffs if item.roleName == "監督"],
             studio=studio,
             publisher=studio,
@@ -1197,6 +1207,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
         sample_images = [str(item.largeImageUrl or "").strip() for item in (data.sampleImages or []) if item]
 
         ctx.debug(f"digital GraphQL 请求成功: {content_id=} {detail_url=}")
+        score = "" if review is None or review.average is None else str(review.average)
         return CrawlerData(
             title=str(data.title or ""),
             outline=outline,
@@ -1206,7 +1217,9 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             directors=[item.name for item in (data.directors or []) if item and item.name],
             thumb=str(package_image.largeUrl or ""),
             poster=str(package_image.mediumUrl or ""),
-            score="" if review is None or review.average is None else str(review.average),
+            score=score,
+            # DMM 用户评分为 5 点満点；digital 既有请求不含评分人数，不为其增加请求
+            score_max="5" if score else "",
             series="" if data.series is None else str(data.series.name or ""),
             studio="" if data.maker is None else str(data.maker.name or ""),
             publisher="" if data.label is None else str(data.label.name or ""),

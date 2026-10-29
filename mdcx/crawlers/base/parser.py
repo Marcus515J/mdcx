@@ -143,6 +143,12 @@ class DetailPageParser[T: Context = Context]:
     async def score(self, ctx: T, html: Selector) -> FieldRes:
         return self.NOT_SUPPORT
 
+    async def score_max(self, ctx: T, html: Selector) -> FieldRes:
+        return self.NOT_SUPPORT
+
+    async def score_count(self, ctx: T, html: Selector) -> FieldRes:
+        return self.NOT_SUPPORT
+
     async def series(self, ctx: T, html: Selector) -> FieldRes:
         return self.NOT_SUPPORT
 
@@ -201,6 +207,8 @@ class DetailPageParser[T: Context = Context]:
             release=await self.release(ctx, html),
             runtime=await self.runtime(ctx, html),
             score=await self.score(ctx, html),
+            score_max=await self.score_max(ctx, html),
+            score_count=await self.score_count(ctx, html),
             series=await self.series(ctx, html),
             studio=await self.studio(ctx, html),
             tags=await self.tags(ctx, html),

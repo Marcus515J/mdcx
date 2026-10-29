@@ -14,7 +14,7 @@ from ..config.resource_policy import resource_policy
 from ..gen.field_enums import CrawlerResultFields
 from ..manual import ManualConfig
 from ..models.log_buffer import LogBuffer
-from ..models.types import CrawlersResult, FileInfo, OtherInfo
+from ..models.types import CrawlersResult, FileInfo, OtherInfo, score_to_10
 from ..number import get_number_letters
 from ..signals import signal
 from ..utils import get_used_time
@@ -269,21 +269,26 @@ async def write_nfo(file_info: FileInfo, data: CrawlersResult, nfo_file: Path, o
             for name in directors:
                 write_text_element(code, "director", name)
 
-        # 输出公众评分、影评人评分
+        # 输出公众评分（统一换算为 10 分制）、同源评分人数
         try:
-            if data.score:
-                score = float(data.score)
-                if NfoInclude.SCORE in nfo_include_new:
-                    print("  <rating>" + str(score) + "</rating>", file=code)
-                if NfoInclude.CRITICRATING in nfo_include_new:
-                    print("  <criticrating>" + str(int(score * 10)) + "</criticrating>", file=code)
+            if data.score and NfoInclude.SCORE in nfo_include_new:
+                rating = score_to_10(data.score, data.score_max)
+                if rating:
+                    write_text_element(code, "rating", rating)
+                    # ratingsource 标记新格式, 供回读区分旧 votes（想看人数）与新 votes（评分人数）
+                    if score_source := data.field_sources.get(CrawlerResultFields.SCORE):
+                        write_text_element(code, "ratingsource", score_source)
+                    if data.score_count:
+                        write_text_element(code, "votes", data.score_count)
         except Exception:
             print(traceback.format_exc())
 
-        # 输出我想看人数
+        # 输出想看人数及其来源
         try:
             if data.wanted and NfoInclude.WANTED in nfo_include_new:
-                print("  <votes>" + data.wanted + "</votes>", file=code)
+                write_text_element(code, "wanted", data.wanted)
+                if wanted_source := data.field_sources.get(CrawlerResultFields.WANTED):
+                    write_text_element(code, "wantedsource", wanted_source)
         except Exception:
             pass
 
@@ -443,11 +448,9 @@ async def get_nfo_data(file_path: Path, movie_number: str) -> tuple[CrawlersResu
     json_data.release = release
     year = "".join(xml_nfo.xpath("//year/text()"))
     runtime = "".join(xml_nfo.xpath("//runtime/text()"))
+    # NFO 中的 rating 一律视为已换算的 10 分制, 回写时原样保留数值
     score = "".join(xml_nfo.xpath("//rating/text()"))
-    if not score:
-        score = "".join(xml_nfo.xpath("//rating/text()"))
-        if score:
-            score = str(int(score) / 10)
+    rating_source = "".join(xml_nfo.xpath("//ratingsource/text()"))
     series = "".join(xml_nfo.xpath("//series/text()"))
     director = ",".join(xml_nfo.xpath("//director/text()"))
     studio = "".join(xml_nfo.xpath("//studio/text()"))
@@ -459,7 +462,17 @@ async def get_nfo_data(file_path: Path, movie_number: str) -> tuple[CrawlersResu
     cover = "".join(xml_nfo.xpath("//cover/text()")).replace("&amp;", "&")
     poster = "".join(xml_nfo.xpath("//poster/text()")).replace("&amp;", "&")
     trailer = "".join(xml_nfo.xpath("//trailer/text()")).replace("&amp;", "&")
-    wanted = "".join(xml_nfo.xpath("//votes/text()"))
+    wanted = "".join(xml_nfo.xpath("//wanted/text()"))
+    wanted_source = "".join(xml_nfo.xpath("//wantedsource/text()"))
+    votes = "".join(xml_nfo.xpath("//votes/text()"))
+    if rating_source:
+        # 新格式: votes 为真实评分人数
+        score_count = votes
+    else:
+        # 旧格式: votes 实为想看人数, 不当作评分人数
+        score_count = ""
+        if not wanted:
+            wanted = votes
 
     # 判断马赛克
     if "国产" in tag or "國產" in tag:
@@ -547,6 +560,12 @@ async def get_nfo_data(file_path: Path, movie_number: str) -> tuple[CrawlersResu
     json_data.year = year
     json_data.runtime = runtime
     json_data.score = score
+    json_data.score_max = "10" if score else ""
+    json_data.score_count = score_count
+    if rating_source:
+        json_data.field_sources[CrawlerResultFields.SCORE] = rating_source
+    if wanted_source:
+        json_data.field_sources[CrawlerResultFields.WANTED] = wanted_source
     json_data.director = director
     json_data.series = series
     json_data.studio = studio
