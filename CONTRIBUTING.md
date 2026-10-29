@@ -32,7 +32,7 @@ Python 侧使用 pytest。先安装 FFmpeg（需包含 ffmpeg 和 ffprobe，并�
 QT_QPA_PLATFORM=offscreen uv run --locked pytest -q
 ```
 
-CI 在主分支推送及 PR 新建、更新、重新打开和转为待评审时，运行代码格式、静态检查及完整 pytest 测试。测试使用 Python 3.13 和锁定依赖，Qt 使用无显示模式。
+CI 在向 develop 分支推送，以及以 master 或 develop 为目标的 PR 新建、更新、重新打开、转为待评审和请求评审时，运行代码格式、静态检查及完整 pytest 测试。测试使用 Python 3.13 和锁定依赖，Qt 使用无显示模式。
 
 未提供本地 HTML 样本的解析器测试会按原有逻辑跳过；CI 不保证外部网站始终可用，也不代替 Windows/macOS 桌面交互和打包后应用的人工验证。
 
