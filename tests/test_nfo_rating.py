@@ -1,10 +1,14 @@
 import pytest
 from lxml import etree
 
-from mdcx.config.enums import NfoInclude
+from mdcx.config.enums import FixedScrapingType, NfoInclude, Website
+from mdcx.config.models import Config
 from mdcx.core import nfo as nfo_module
+from mdcx.core.file_crawler import FileScraper
+from mdcx.core.naming import NameRenderOptions, NamingTarget, render_name
 from mdcx.gen.field_enums import CrawlerResultFields
-from mdcx.models.types import CrawlersResult, FileInfo, score_to_10
+from mdcx.models.enums import FileMode
+from mdcx.models.types import CrawlerDebugInfo, CrawlerResponse, CrawlerResult, CrawlersResult, FileInfo, score_to_10
 
 
 class _RenderedTitle:
@@ -60,6 +64,57 @@ def test_score_to_10():
     assert score_to_10("0", "5") == ""
     assert score_to_10("0.0", "5") == ""
     assert score_to_10("abc", "5") == ""
+
+
+@pytest.mark.parametrize(
+    ("site", "score", "score_max", "expected"),
+    [
+        (Website.JAVDB, "4.34", "5", "8.68"),
+        (Website.JAVDB, "4.15", "5", "8.3"),
+        (Website.JAVDB, "4.16", "5", "8.32"),
+        (Website.JAVDB, "4.19", "5", "8.38"),
+        (Website.JAVDB, "4.13", "5", "8.26"),
+        (Website.JAVDB, "3.79", "5", "7.58"),
+        (Website.JAVLIBRARY, "7.90", "10", "7.9"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_scrape_to_nfo_preserves_rating_precision(monkeypatch, tmp_path, site, score, score_max, expected):
+    _configure_nfo_writer(monkeypatch)
+    source = CrawlerResult.empty()
+    source.title = "标题"
+    source.source = site.value
+    source.score = score
+    source.score_max = score_max
+    calls = []
+
+    class Provider:
+        async def get(self, requested_site):
+            assert requested_site == site
+            return self
+
+        async def run(self, task_input):
+            calls.append(task_input.number)
+            return CrawlerResponse(debug_info=CrawlerDebugInfo(), data=source)
+
+    config = Config(scrape_like="info", fixed_scraping_type=FixedScrapingType.YOUMA, website_youma=[site])
+    for field in CrawlerResultFields:
+        config.set_type_field_sites(FixedScrapingType.YOUMA, field, [site])
+    file_info = _build_file_info(tmp_path)
+    data = await FileScraper(config, Provider()).run(file_info.crawl_task(), FileMode.Default)
+
+    assert data is not None
+    nfo_file = tmp_path / "ABC-123.nfo"
+    assert await nfo_module.write_nfo(file_info, data, nfo_file, tmp_path, update=True) is True
+    root = etree.fromstring(nfo_file.read_bytes())
+    assert f"rating(10分制) {expected}, 来源 {site.value};" in data.field_log
+    assert root.findtext("rating") == expected
+    assert root.findtext("ratingsource") == site.value
+    assert data.score == score
+    assert calls == ["ABC-123"]
+    # 命名模板也会看到完整的来源原始分，而不是换算后的 10 分值。
+    rendered = render_name("{{ number }} {{ score }}", file_info, data, NameRenderOptions(target=NamingTarget.FILE))
+    assert rendered.text == f"ABC-123 {score}"
 
 
 @pytest.mark.asyncio

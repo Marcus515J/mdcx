@@ -170,10 +170,6 @@ def _deal_res(res: CrawlersResult) -> CrawlersResult:
     # 发行日期
     res.release = _normalize_release_value(res.release)
 
-    # 评分
-    if res.score:
-        res.score = f"{float(res.score):.1f}"
-
     # publisher
     if not res.publisher:
         res.publisher = res.studio
@@ -432,9 +428,9 @@ class FileScraper:
         if len(all_res) == 0:
             return None
 
-        # 评分汇总日志: 记录评分/想看链上各站的原始评分、满分、评分人数与想看人数
+        # 评分汇总日志: 保留链上状态，并补齐所有已抓站点，不为汇总额外请求。
         score_summary = "\n\n    📊 评分汇总\n    ===================================="
-        for site in dict.fromkeys([*score_chain, *wanted_chain]):
+        for site in dict.fromkeys([*score_chain, *wanted_chain, *(s for s, _ in all_res)]):
             site_data = next((d for (s, _), d in all_res.items() if s == site), None)
             if site_data is None:
                 state = "失败" if any(s == site for s, _ in failed) else "未调用"

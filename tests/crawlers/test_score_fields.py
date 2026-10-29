@@ -11,7 +11,7 @@ from mdcx.crawlers.fc2 import getScore, getScoreInfo
 from mdcx.crawlers.javdb_new import Parser as JavdbParser
 from mdcx.crawlers.javlibrary import JavlibraryCrawler
 from mdcx.gen.field_enums import CrawlerResultFields
-from mdcx.models.types import CrawlerInput, score_to_10
+from mdcx.models.types import CrawlerDebugInfo, CrawlerInput, CrawlerResponse, CrawlerResult, score_to_10
 from tests.crawlers.test_javlibrary import FakeJavlibraryClient, _detail_html
 
 
@@ -159,3 +159,46 @@ async def test_reduce_copies_same_source_score_fields_and_logs_summary():
     assert "评分人数 未知" in result.field_log
     assert "想看人数 99" in result.field_log
     assert "rating(10分制) 4.2" in result.field_log
+
+
+@pytest.mark.asyncio
+async def test_score_summary_includes_fetched_site_outside_score_chains():
+    dmm = CrawlerResult.empty()
+    dmm.title = "标题"
+    dmm.source = "dmm"
+    dmm.score, dmm.score_max, dmm.score_count, dmm.wanted = "4.21", "5", "321", "12"
+    javlibrary = CrawlerResult.empty()
+    javlibrary.source = "javlibrary"
+    javlibrary.score, javlibrary.score_max, javlibrary.wanted = "7.90", "10", "99"
+    calls = []
+
+    class Provider:
+        async def get(self, site):
+            class Crawler:
+                async def run(self, task_input):
+                    calls.append(site)
+                    return CrawlerResponse(
+                        debug_info=CrawlerDebugInfo(), data={Website.DMM: dmm, Website.JAVLIBRARY: javlibrary}[site]
+                    )
+
+            return Crawler()
+
+    config = Config()
+    for field in CrawlerResultFields:
+        config.field_configs[field] = FieldConfig(site_prority=[Website.DMM])
+    for field in (CrawlerResultFields.SCORE, CrawlerResultFields.WANTED):
+        config.field_configs[field] = FieldConfig(site_prority=[Website.JAVLIBRARY])
+    result = await FileScraper(config, Provider())._call_crawlers(
+        CrawlerInput.empty(), [Website.DMM, Website.JAVLIBRARY]
+    )
+
+    assert result is not None
+    summary = result.field_log.split("📊 评分汇总", 1)[1]
+    assert "dmm             评分 4.21/5, 评分人数 321, 想看人数 12" in summary
+    assert "javlibrary      评分 7.90/10, 评分人数 未知, 想看人数 99" in summary
+    assert result.score == "7.90"
+    assert result.score_max == "10"
+    assert result.score_count == ""
+    assert result.field_sources[CrawlerResultFields.SCORE] == "javlibrary"
+    assert result.wanted == "99"
+    assert calls == [Website.DMM, Website.JAVLIBRARY]
