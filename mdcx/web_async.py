@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -676,6 +677,20 @@ class AsyncWebClient:
                     response, pool=pool, generation=generation, request_loop=request_loop
                 )
             return response
+        except SiteCircuitOpen:
+            raise
+        except Exception as exc:
+            # Log metadata only: exception strings can contain credentials or proxy addresses.
+            with contextlib.suppress(Exception):
+                host = urlsplit(url).hostname or "未知"
+                if host == (urlsplit(self.cf_bypass_url).hostname or ""):
+                    host = "bypass服务"
+                self._log(
+                    f"🧾 [传输诊断] 时间={datetime.now().astimezone().isoformat(timespec='seconds')} "
+                    f"主机={host} 路由={'代理' if proxy else '直连'} "
+                    f"错误码={getattr(exc, 'code', '未知')} 类型={type(exc).__name__}"
+                )
+            raise
         finally:
             if release_now:
                 await pool.end_request(generation)
@@ -757,6 +772,48 @@ class AsyncWebClient:
         try:
             self.log_fn(safe_message)
         except Exception:
+            pass
+
+    @staticmethod
+    def _diagnostic_url(url: str) -> str:
+        """Keep routing evidence, excluding accounts, credentials and arbitrary query values."""
+        parsed = urlsplit(str(url))
+        host = parsed.hostname or ""
+        path = re.sub(r"(?i)(/(?:users?|accounts?|profiles?)/)[^/]+", r"\1[已隐藏]", parsed.path)
+        path = re.sub(r"[^/]+@[^/]+", "[已隐藏]", path)
+        query = urlencode(
+            [
+                (key, value)
+                for key, value in parse_qsl(parsed.query)
+                if key.lower() in {"id", "cid", "content", "seasonid", "searchstr", "keyword", "locale"}
+            ]
+        )
+        return urlunsplit((parsed.scheme, host, path, query, ""))
+
+    def _log_dmm_response(self, response: Response, request_url: str, *, method: str, stream: bool) -> None:
+        state = crawl_request_state.get()
+        if state is None or state.site_name != "dmm" or stream or method.upper() != "GET":
+            return
+        if infer_request_purpose(request_url) != "document":
+            return
+        try:
+            host = urlsplit(request_url).hostname or ""
+            if not any(host == domain or host.endswith("." + domain) for domain in ("dmm.co.jp", "dmm.com")):
+                return  # Do not expose the bypass service address from nested requests.
+            final_url = str(getattr(response, "url", "") or "")
+            headers = {str(key): str(value) for key, value in response.headers.items()}
+            bypass_mode = self._extract_header_case_insensitive(headers, "x-mdcx-bypass-mode")
+            if bypass_mode == "html":
+                # /html falls back to the requested URL for parsing; that is not redirect evidence.
+                final_url = self._extract_header_case_insensitive(headers, "x-cf-bypasser-final-url")
+            self._log(
+                f"🧾 [DMM响应诊断] 阶段={'搜索' if '/search/' in urlsplit(request_url).path else '详情'} "
+                f"请求={self._diagnostic_url(request_url)} "
+                f"最终URL={self._diagnostic_url(final_url) if final_url else '未记录'} "
+                f"HTTP状态={response.status_code} 响应字节数={len(response.content)} 来源={bypass_mode or '普通请求'}"
+            )
+        except Exception:
+            # Diagnostics must never change request/decoding behavior.
             pass
 
     def _prepare_headers(
@@ -1833,6 +1890,7 @@ class AsyncWebClient:
                                 allow_redirects=allow_redirects,
                             )
 
+                        self._log_dmm_response(resp, url, method=str(method), stream=stream)
                         bypass_needed = bool(
                             enable_cf_bypass
                             and self._cf_bypass_enabled
@@ -1867,6 +1925,7 @@ class AsyncWebClient:
                             bypass_round += 1
 
                             if bypass_response is not None:
+                                self._log_dmm_response(bypass_response, url, method=str(method), stream=stream)
                                 bypass_mode = self._extract_header_case_insensitive(
                                     {str(k): str(v) for k, v in bypass_response.headers.items()},
                                     "x-mdcx-bypass-mode",

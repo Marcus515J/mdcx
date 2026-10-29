@@ -562,16 +562,20 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
 
     @override
     async def _parse_search_page(self, ctx, html, search_url) -> list[str] | None:
+        diagnostic_number = ctx.input.number if re.fullmatch(r"[A-Za-z0-9_-]+", ctx.input.number) else "[已隐藏]"
         if "404 Not Found" in html.css("span.d-txten::text").get(""):
+            self._log(f"匹配诊断: 番号={diagnostic_number} 阶段=搜索 命中=否 原因=页面404")
             raise CralwerException("404! 页面地址错误！")
 
         url_list = self._extract_search_detail_urls(html, search_url)
         if not url_list:
+            self._log(f"匹配诊断: 番号={diagnostic_number} 阶段=搜索 命中=否 候选数=0")
             ctx.debug(f"没有找到搜索结果: {ctx.input.number} {search_url=}")
             return None
 
         number_parts: re.Match[str] | None = re.search(r"(\d*[a-z]+)?-?(\d+)", ctx.input.number.lower())
         if not number_parts:
+            self._log("匹配诊断: 阶段=搜索 命中=否 原因=番号格式未匹配")
             ctx.debug(f"无法从番号 {ctx.input.number} 提取前缀和数字")
             return None
         prefix = number_parts.group(1) or ""
@@ -589,6 +593,9 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             ):
                 res.append(u)
 
+        self._log(
+            f"匹配诊断: 番号={diagnostic_number} 阶段=搜索 命中={'是' if res else '否'} 候选数={len(url_list)} 匹配数={len(res)}"
+        )
         return res
 
     @classmethod
@@ -729,6 +736,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
                         group.add(self.fetch_and_parse(ctx, u, parser))
 
         if not task_categories:
+            self._log("匹配诊断: 阶段=详情 命中=否 原因=未识别详情类型")
             return None
 
         candidate_results = list(zip(task_categories, task_urls, group.results, strict=True))
@@ -780,6 +788,10 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             await self._finalize_result_images(ctx, res, label="最终图片", validate_thumb=False)
             ctx.final_images_resolved = True
 
+        diagnostic_number = ctx.input.number if re.fullmatch(r"[A-Za-z0-9_-]+", ctx.input.number) else "[已隐藏]"
+        self._log(
+            f"匹配诊断: 番号={diagnostic_number} 阶段=详情 命中={'是' if res is not None and is_valid(res.title) else '否'}"
+        )
         return res
 
     @staticmethod

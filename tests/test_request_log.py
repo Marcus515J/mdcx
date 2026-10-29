@@ -3,14 +3,21 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from curl_cffi.requests import Response
+from curl_cffi.requests.exceptions import RequestException
+from parsel import Selector
 from PyQt6.QtWidgets import QApplication, QMainWindow
 
 from mdcx.config.models import Config
 from mdcx.controllers.main_window import main_window as module
 from mdcx.controllers.main_window.main_window import MyMAinWindow
+from mdcx.crawlers.base.types import CrawlerData
+from mdcx.crawlers.dmm_new import DMMContext, DmmCrawler
 from mdcx.models.flags import Flags
+from mdcx.models.types import CrawlerInput
 from mdcx.signals import signal_qt
 from mdcx.views.MDCx import Ui_MDCx
+from mdcx.web_async import AsyncWebClient, movie_request_scope
 
 
 @pytest.fixture(scope="session")
@@ -123,6 +130,142 @@ def test_request_credentials_redacted_without_losing_other_diagnostics(window):
         assert secret not in text
     assert "example.test/path?token=[已隐藏]&cookie=[已隐藏]&id=123" in text
     assert "思考内容：有（8 字符）" in text
+
+
+def _fake_session_factory(request):
+    class FakeSession:
+        closed = False
+
+        def __init__(self, _fingerprint=None):
+            pass
+
+        async def close(self):
+            self.closed = True
+
+        async def request(self, **kwargs):
+            return request(**kwargs)
+
+    return FakeSession
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("matched", [False, True])
+async def test_dmm_response_and_search_diagnostics_saved_without_another_request(window, matched):
+    win, _, root = window
+    response = Response()
+    response.status_code = 200
+    response.url = "https://account:password@www.dmm.co.jp/service/foreign/?cookie=secret&account=private&token=key"
+    html = (
+        '<a href="https://video.dmm.co.jp/av/content/?id=demo00123&i3_ref=search">合成结果</a>'
+        if matched
+        else "地区页面"
+    )
+    response.content = html.encode("utf-8")
+    request = Mock(return_value=response)
+    client = AsyncWebClient(timeout=1, log_fn=signal_qt.add_log)
+    client._pool_manager._session_factory = _fake_session_factory(request)
+    ctx = DMMContext(input=CrawlerInput.empty())
+    ctx.input.number = "DEMO-123"
+    crawler = DmmCrawler(client=client)
+    try:
+        with movie_request_scope("dmm"):
+            text, error = await client.get_text("https://www.dmm.co.jp/search/=/searchstr=demo123/", retry_count=1)
+            results = await crawler._parse_search_page(ctx, Selector(text), response.url)
+        assert text == html and not error
+        assert bool(results) == matched
+        assert request.call_count == 1
+        win.show_detail_log()
+        saved = next((root / "Log").glob("*-请求.txt")).read_text(encoding="utf-8")
+        assert "[DMM响应诊断] 阶段=搜索" in saved
+        assert "最终URL=https://www.dmm.co.jp/service/foreign/" in saved
+        assert f"HTTP状态=200 响应字节数={len(response.content)}" in saved
+        assert f"匹配诊断: 番号=DEMO-123 阶段=搜索 命中={'是' if matched else '否'}" in saved
+        for secret in ("account:password", "secret", "private", "token=key"):
+            assert secret not in saved
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("code", "use_proxy"), [(35, False), (35, True), (16, False), (16, True)])
+async def test_transport_diagnostics_saved_with_time_host_and_actual_route(window, code, use_proxy):
+    from datetime import datetime
+
+    win, _, root = window
+    failure = RequestException("synthetic failure", code=code)
+    request = Mock(side_effect=failure)
+    client = AsyncWebClient(
+        timeout=1, proxy="http://proxy-user:proxy-password@proxy.test:7890", log_fn=signal_qt.add_log
+    )
+    client._pool_manager._session_factory = _fake_session_factory(request)
+    try:
+        text, error = await client.get_text("https://transport.test/detail", use_proxy=use_proxy, retry_count=1)
+        assert text is None and "synthetic failure" in error
+        assert request.call_count == 1
+        assert request.call_args.kwargs["proxy"] == (client.proxy if use_proxy else None)
+        win.show_detail_log()
+        saved = next((root / "Log").glob("*-请求.txt")).read_text(encoding="utf-8")
+        diagnostic = next(line for line in saved.splitlines() if "[传输诊断]" in line)
+        timestamp = diagnostic.split("时间=", 1)[1].split()[0]
+        assert datetime.fromisoformat(timestamp).tzinfo is not None
+        assert f"主机=transport.test 路由={'代理' if use_proxy else '直连'} 错误码={code}" in diagnostic
+        for secret in ("proxy.test", "proxy-user", "proxy-password", "7890"):
+            assert secret not in diagnostic
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("title", ["", "合成标题"])
+async def test_dmm_detail_match_diagnostic_saved(window, monkeypatch, title):
+    win, _, root = window
+    crawler = DmmCrawler(client=None)
+    ctx = DMMContext(input=CrawlerInput.empty())
+    ctx.input.number = "DEMO-123"
+    calls = []
+
+    async def fetch(*args):
+        calls.append(args)
+        return CrawlerData(title=title)
+
+    async def sanitize(ctx, category, url, item):
+        return item
+
+    async def finalize(ctx, item, **kwargs):
+        return item
+
+    monkeypatch.setattr(crawler, "fetch_and_parse", fetch)
+    monkeypatch.setattr(crawler, "_sanitize_candidate_images", sanitize)
+    monkeypatch.setattr(crawler, "_finalize_result_images", finalize)
+    await crawler._detail(ctx, ["https://www.dmm.co.jp/mono/dvd/-/detail/=/cid=demo00123/"])
+    assert len(calls) == 1
+    win.show_detail_log()
+    saved = next((root / "Log").glob("*-请求.txt")).read_text(encoding="utf-8")
+    assert f"匹配诊断: 番号=DEMO-123 阶段=详情 命中={'是' if title else '否'}" in saved
+
+
+def test_dmm_html_diagnostic_requires_final_url_evidence_and_hides_service_address(window):
+    win, _, root = window
+    client = AsyncWebClient(timeout=1, log_fn=signal_qt.add_log)
+    response = Response()
+    response.status_code = 200
+    response.content = b"offline"
+    response.url = "https://video.dmm.co.jp/av/content/?id=demo00123"
+    response.headers["x-mdcx-bypass-mode"] = "html"
+    with movie_request_scope("dmm"):
+        client._log_dmm_response(response, "http://private-bypass.test:8000/html", method="GET", stream=False)
+        client._log_dmm_response(response, response.url, method="GET", stream=False)
+        response.headers["x-cf-bypasser-final-url"] = "https://www.dmm.co.jp/service/foreign/"
+        client._log_dmm_response(response, response.url, method="GET", stream=False)
+        client._log_dmm_response(response, response.url, method="GET", stream=True)
+        client._log_dmm_response(response, response.url, method="POST", stream=False)
+    win.show_detail_log()
+    saved = next((root / "Log").glob("*-请求.txt")).read_text(encoding="utf-8")
+    assert saved.count("[DMM响应诊断]") == 2
+    assert "阶段=详情" in saved
+    assert "最终URL=未记录 HTTP状态=200 响应字节数=7 来源=html" in saved
+    assert "最终URL=https://www.dmm.co.jp/service/foreign/" in saved
+    assert "private-bypass" not in saved
 
 
 def test_taskbar_counts_completed_success_and_failure_and_clears_on_end(window, monkeypatch):
