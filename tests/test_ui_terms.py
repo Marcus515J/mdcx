@@ -236,6 +236,8 @@ def test_issue_40_acceptance_steps_ui_terms():
         ("pushButton_select_config_folder", "text", "选择目录"),
         ("pushButton_save_config", "text", "保存"),
         ("pushButton_start_cap", "text", "开始"),
+        ("checkBox_nfo_score", "text", "公众评分（score）"),
+        ("checkBox_nfo_criticrating", "text", "影评人评分（criticrating）"),
     ]
     for name, prop, expected in checks:
         node = root.find(f'.//*[@name="{name}"]')

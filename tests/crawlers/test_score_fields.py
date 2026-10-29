@@ -11,8 +11,8 @@ from mdcx.crawlers.fc2 import getScore, getScoreInfo
 from mdcx.crawlers.javdb_new import Parser as JavdbParser
 from mdcx.crawlers.javlibrary import JavlibraryCrawler
 from mdcx.gen.field_enums import CrawlerResultFields
-from mdcx.models.types import CrawlerInput
-from tests.crawlers.test_javlibrary import FakeJavlibraryClient
+from mdcx.models.types import CrawlerInput, score_to_10
+from tests.crawlers.test_javlibrary import FakeJavlibraryClient, _detail_html
 
 
 def _html(content: str):
@@ -108,9 +108,29 @@ async def test_javlibrary_result_carries_score_max():
     )
     assert res.data is not None
     assert res.data.score == "4.20"
-    assert res.data.score_max == "5"
+    assert res.data.score_max == "10"
     assert res.data.score_count == ""
     assert res.data.wanted == "99"
+    assert score_to_10(res.data.score, res.data.score_max) == "4.2"
+
+
+@pytest.mark.asyncio
+async def test_javlibrary_detail_score_10_scale_conversion():
+    detail_860 = _detail_html("FSDSS-200 Japanese Title", "女優A").replace("(4.20)", "(8.60)")
+
+    class Client860:
+        async def get_text(self, url, **kwargs):
+            return detail_860, ""
+
+    crawler = JavlibraryCrawler(client=Client860(), base_url="https://www.javlibrary.com")
+    task_input = CrawlerInput.empty()
+    task_input.number = "FSDSS-200"
+    task_input.appoint_url = "https://www.javlibrary.com/ja/?v=javtest200"
+    res = await crawler.run(task_input)
+    assert res.data is not None
+    assert res.data.score == "8.60"
+    assert res.data.score_max == "10"
+    assert score_to_10(res.data.score, res.data.score_max) == "8.6"
 
 
 @pytest.mark.asyncio
@@ -131,11 +151,11 @@ async def test_reduce_copies_same_source_score_fields_and_logs_summary():
 
     assert result is not None
     assert result.score == "4.20"
-    assert result.score_max == "5"
+    assert result.score_max == "10"
     assert result.score_count == ""
     assert result.field_sources[CrawlerResultFields.SCORE] == "javlibrary"
     assert "📊 评分汇总" in result.field_log
     assert "javlibrary" in result.field_log
     assert "评分人数 未知" in result.field_log
     assert "想看人数 99" in result.field_log
-    assert "rating(10分制) 8.4" in result.field_log
+    assert "rating(10分制) 4.2" in result.field_log

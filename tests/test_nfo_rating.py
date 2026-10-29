@@ -28,7 +28,11 @@ def _configure_nfo_writer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(nfo_module.manager.config, "main_mode", 1)
     monkeypatch.setattr(nfo_module.manager.config, "naming_media", "number title")
     monkeypatch.setattr(nfo_module.manager.config, "update_titletemplate", "number title")
-    monkeypatch.setattr(nfo_module.manager.config, "nfo_include_new", [NfoInclude.SCORE, NfoInclude.WANTED])
+    monkeypatch.setattr(
+        nfo_module.manager.config,
+        "nfo_include_new",
+        [NfoInclude.SCORE, NfoInclude.CRITICRATING, NfoInclude.WANTED],
+    )
     monkeypatch.setattr(nfo_module.manager.config, "nfo_tagline", "release")
     monkeypatch.setattr(nfo_module.manager.config, "actor_no_name", "佚名")
     monkeypatch.setattr(nfo_module, "render_name", lambda *args, **kwargs: _RenderedTitle("标题"))
