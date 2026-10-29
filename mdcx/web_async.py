@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
+from datetime import datetime
 from io import BytesIO
 from pathlib import Path
 from typing import Any
@@ -58,7 +59,7 @@ class _SiteBanState:
     pause_until: float = 0.0
     last_failure_trigger_time: float = 0.0
     circuit_open: bool = False
-    last_status_code: int = 403
+    last_status_code: int | None = 403
 
 
 @dataclass
@@ -71,6 +72,7 @@ class CrawlRequestState:
     open_circuit: Callable[[str], None] | None = None
     is_ban_failure: bool = False
     ban_failure_recorded: bool = False
+    abandoned_error: str = ""
 
 
 crawl_request_state: ContextVar[CrawlRequestState | None] = ContextVar("crawl_request_state", default=None)
@@ -104,23 +106,28 @@ def extend_crawl_timeout(seconds: float) -> None:
     if budget is not None:
         budget.deadline += seconds
         timeout_ctx = getattr(state, "timeout_ctx", None)
-        if timeout_ctx is not None:
+        if timeout_ctx is not None and not timeout_ctx.expired() and timeout_ctx.when() is not None:
             timeout_ctx.reschedule(budget.deadline)
 
 
 @contextlib.asynccontextmanager
 async def exempt_crawl_timeout():
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
+    state = crawl_request_state.get()
+    budget = getattr(state, "budget", None)
+    timeout_ctx = getattr(state, "timeout_ctx", None)
+    # Only the outer exemption owns the timer; nested waits must not double-count.
+    if budget is None or timeout_ctx is None or timeout_ctx.expired() or timeout_ctx.when() is None:
         yield
         return
+    loop = asyncio.get_running_loop()
     start_time = loop.time()
+    timeout_ctx.reschedule(None)
     try:
         yield
     finally:
-        elapsed = loop.time() - start_time
-        extend_crawl_timeout(elapsed)
+        budget.deadline += loop.time() - start_time
+        if not timeout_ctx.expired():
+            timeout_ctx.reschedule(budget.deadline)
 
 
 def _check_site_circuit() -> None:
@@ -645,6 +652,8 @@ class AsyncWebClient:
     async def _curl_request(self, *, fingerprint: BrowserFingerprint | None = None, **kwargs) -> Response:
         _check_site_circuit()
         url = str(kwargs.get("url") or "")
+        site_key = self._resolve_site_key(httpx.URL(url).host or "")
+        await self._wait_for_site_pause_if_needed(site_key)
         proxy = kwargs.get("proxy")
         pool_key = HostPoolManager.key_for_request(url, str(proxy) if proxy else None, fingerprint)
         if self._closed or (self._close_requested and self._lease_count() == 0):
@@ -654,6 +663,7 @@ class AsyncWebClient:
         session, generation = await pool.begin_request()
         release_now = True
         try:
+            await self._wait_for_site_pause_if_needed(site_key)
             _check_site_circuit()
             coro = session.request(**kwargs)
             timeout_seconds = self._request_timeout_seconds(kwargs.get("timeout"))
@@ -667,6 +677,20 @@ class AsyncWebClient:
                     response, pool=pool, generation=generation, request_loop=request_loop
                 )
             return response
+        except SiteCircuitOpen:
+            raise
+        except Exception as exc:
+            # Log metadata only: exception strings can contain credentials or proxy addresses.
+            with contextlib.suppress(Exception):
+                host = urlsplit(url).hostname or "未知"
+                if host == (urlsplit(self.cf_bypass_url).hostname or ""):
+                    host = "bypass服务"
+                self._log(
+                    f"🧾 [传输诊断] 时间={datetime.now().astimezone().isoformat(timespec='seconds')} "
+                    f"主机={host} 路由={'代理' if proxy else '直连'} "
+                    f"错误码={getattr(exc, 'code', '未知')} 类型={type(exc).__name__}"
+                )
+            raise
         finally:
             if release_now:
                 await pool.end_request(generation)
@@ -748,6 +772,48 @@ class AsyncWebClient:
         try:
             self.log_fn(safe_message)
         except Exception:
+            pass
+
+    @staticmethod
+    def _diagnostic_url(url: str) -> str:
+        """Keep routing evidence, excluding accounts, credentials and arbitrary query values."""
+        parsed = urlsplit(str(url))
+        host = parsed.hostname or ""
+        path = re.sub(r"(?i)(/(?:users?|accounts?|profiles?)/)[^/]+", r"\1[已隐藏]", parsed.path)
+        path = re.sub(r"[^/]+@[^/]+", "[已隐藏]", path)
+        query = urlencode(
+            [
+                (key, value)
+                for key, value in parse_qsl(parsed.query)
+                if key.lower() in {"id", "cid", "content", "seasonid", "searchstr", "keyword", "locale"}
+            ]
+        )
+        return urlunsplit((parsed.scheme, host, path, query, ""))
+
+    def _log_dmm_response(self, response: Response, request_url: str, *, method: str, stream: bool) -> None:
+        state = crawl_request_state.get()
+        if state is None or state.site_name != "dmm" or stream or method.upper() != "GET":
+            return
+        if infer_request_purpose(request_url) != "document":
+            return
+        try:
+            host = urlsplit(request_url).hostname or ""
+            if not any(host == domain or host.endswith("." + domain) for domain in ("dmm.co.jp", "dmm.com")):
+                return  # Do not expose the bypass service address from nested requests.
+            final_url = str(getattr(response, "url", "") or "")
+            headers = {str(key): str(value) for key, value in response.headers.items()}
+            bypass_mode = self._extract_header_case_insensitive(headers, "x-mdcx-bypass-mode")
+            if bypass_mode == "html":
+                # /html falls back to the requested URL for parsing; that is not redirect evidence.
+                final_url = self._extract_header_case_insensitive(headers, "x-cf-bypasser-final-url")
+            self._log(
+                f"🧾 [DMM响应诊断] 阶段={'搜索' if '/search/' in urlsplit(request_url).path else '详情'} "
+                f"请求={self._diagnostic_url(request_url)} "
+                f"最终URL={self._diagnostic_url(final_url) if final_url else '未记录'} "
+                f"HTTP状态={response.status_code} 响应字节数={len(response.content)} 来源={bypass_mode or '普通请求'}"
+            )
+        except Exception:
+            # Diagnostics must never change request/decoding behavior.
             pass
 
     def _prepare_headers(
@@ -1213,7 +1279,9 @@ class AsyncWebClient:
                 state.failure_count = 0
                 self._log(f"✅ [封禁] {site_key} 恢复正常，失败计数清零")
 
-    async def _record_site_ban_failure(self, site_key: str, *, status_code: int, request_start_time: float) -> None:
+    async def _record_site_ban_failure(
+        self, site_key: str, *, status_code: int | None, request_start_time: float
+    ) -> None:
         async with self._site_ban_lock:
             state = self._site_ban_states.setdefault(site_key, _SiteBanState())
             state.last_status_code = status_code
@@ -1236,14 +1304,17 @@ class AsyncWebClient:
             state.last_failure_trigger_time = now
             state.pause_until = now + BAN_SITE_PAUSE_SECONDS
 
+            failure = "被拒" if status_code is not None else "CF/bypass 失败"
             self._log(
-                f"⏸️ [封禁] {site_key} 第 {state.failure_count}/{int(BAN_MAX_CONSECUTIVE_FAILURES)} 次被拒，暂停该站 {int(BAN_SITE_PAUSE_SECONDS)}s"
+                f"⏸️ [封禁] {site_key} 第 {state.failure_count}/{int(BAN_MAX_CONSECUTIVE_FAILURES)} 次{failure}，暂停该站 {int(BAN_SITE_PAUSE_SECONDS)}s"
             )
 
             if state.failure_count >= BAN_MAX_CONSECUTIVE_FAILURES:
                 state.circuit_open = True
                 req_state = crawl_request_state.get()
                 reason = f"连续 {int(BAN_MAX_CONSECUTIVE_FAILURES)} 部片被拒绝 ({status_code})，可能已被限制访问"
+                if status_code is None:
+                    reason = f"连续 {int(BAN_MAX_CONSECUTIVE_FAILURES)} 部片请求失败（CF/bypass 或访问受限）"
                 if req_state and req_state.open_circuit:
                     req_state.open_circuit(reason)
                 else:
@@ -1700,6 +1771,9 @@ class AsyncWebClient:
             tuple[Optional[Response], str]: (响应对象, 错误信息)
         """
         try:
+            req_state = crawl_request_state.get()
+            if req_state is not None and req_state.abandoned_error:
+                return None, req_state.abandoned_error
             original_url = url
             url, sanitized = self._sanitize_url(url)
             if sanitized:
@@ -1731,6 +1805,7 @@ class AsyncWebClient:
             retry_count = max(int(self.retry if retry_count is None else retry_count), 1)
             error_msg = ""
             bypass_round = 0
+            bypass_failed = False
             allow_lifetime_rotation = purpose != "download"
             ban_retried = False
 
@@ -1766,6 +1841,7 @@ class AsyncWebClient:
                     limiter = self.limiters.get(host or "default")
                     async with exempt_crawl_timeout():
                         await limiter.acquire()
+                    await self._wait_for_site_pause_if_needed(site_key)
                     req_headers = dict(prepared_headers)
                     req_cookies = self._merge_cookies(cookies)
 
@@ -1814,6 +1890,7 @@ class AsyncWebClient:
                                 allow_redirects=allow_redirects,
                             )
 
+                        self._log_dmm_response(resp, url, method=str(method), stream=stream)
                         bypass_needed = bool(
                             enable_cf_bypass
                             and self._cf_bypass_enabled
@@ -1827,6 +1904,7 @@ class AsyncWebClient:
                     if bypass_needed:
                         max_bypass_rounds = self._cf_request_bypass_rounds + (1 if ban_retried else 0)
                         if bypass_round >= max_bypass_rounds:
+                            bypass_failed = True
                             error_msg = f"Cloudflare 挑战页持续存在，bypass 已达上限 ({max_bypass_rounds})"
                             retry = False
                             self._log_cf(f"🚫 {error_msg}", host)
@@ -1847,6 +1925,7 @@ class AsyncWebClient:
                             bypass_round += 1
 
                             if bypass_response is not None:
+                                self._log_dmm_response(bypass_response, url, method=str(method), stream=stream)
                                 bypass_mode = self._extract_header_case_insensitive(
                                     {str(k): str(v) for k, v in bypass_response.headers.items()},
                                     "x-mdcx-bypass-mode",
@@ -1905,6 +1984,8 @@ class AsyncWebClient:
                             else:
                                 error_msg = f"Cloudflare 挑战页且 bypass 失败: {bypass_error}"
                                 terminal_status = self._extract_terminal_bypass_status(bypass_error)
+                                # Missing pages and ordinary rate limits retain their existing policy.
+                                bypass_failed = terminal_status not in (403, 404, 429)
                                 if terminal_status == 403:
                                     should_retry = await self._handle_ban_action(
                                         host=host,
@@ -2018,6 +2099,11 @@ class AsyncWebClient:
                             self._log_cf(f"⏳ bypass 后退避 {sleep_seconds:.2f}s", host)
                     async with exempt_crawl_timeout():
                         await self._do_sleep(sleep_seconds)
+            if bypass_failed and (req_state := crawl_request_state.get()) is not None:
+                # Internal bypass attempts are already exhausted; do not add another retry.
+                req_state.is_ban_failure = True
+                req_state.abandoned_error = error_msg
+                await self._record_site_ban_failure(site_key, status_code=None, request_start_time=request_start_time)
             self._record_crawl_failure(error_msg)
             return None, f"{method} {url} 失败: {error_msg}"
         except SiteCircuitOpen:

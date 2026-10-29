@@ -562,16 +562,20 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
 
     @override
     async def _parse_search_page(self, ctx, html, search_url) -> list[str] | None:
+        diagnostic_number = ctx.input.number if re.fullmatch(r"[A-Za-z0-9_-]+", ctx.input.number) else "[已隐藏]"
         if "404 Not Found" in html.css("span.d-txten::text").get(""):
+            self._log(f"匹配诊断: 番号={diagnostic_number} 阶段=搜索 命中=否 原因=页面404")
             raise CralwerException("404! 页面地址错误！")
 
         url_list = self._extract_search_detail_urls(html, search_url)
         if not url_list:
+            self._log(f"匹配诊断: 番号={diagnostic_number} 阶段=搜索 命中=否 候选数=0")
             ctx.debug(f"没有找到搜索结果: {ctx.input.number} {search_url=}")
             return None
 
         number_parts: re.Match[str] | None = re.search(r"(\d*[a-z]+)?-?(\d+)", ctx.input.number.lower())
         if not number_parts:
+            self._log("匹配诊断: 阶段=搜索 命中=否 原因=番号格式未匹配")
             ctx.debug(f"无法从番号 {ctx.input.number} 提取前缀和数字")
             return None
         prefix = number_parts.group(1) or ""
@@ -589,6 +593,9 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             ):
                 res.append(u)
 
+        self._log(
+            f"匹配诊断: 番号={diagnostic_number} 阶段=搜索 命中={'是' if res else '否'} 候选数={len(url_list)} 匹配数={len(res)}"
+        )
         return res
 
     @classmethod
@@ -729,6 +736,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
                         group.add(self.fetch_and_parse(ctx, u, parser))
 
         if not task_categories:
+            self._log("匹配诊断: 阶段=详情 命中=否 原因=未识别详情类型")
             return None
 
         candidate_results = list(zip(task_categories, task_urls, group.results, strict=True))
@@ -780,6 +788,10 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             await self._finalize_result_images(ctx, res, label="最终图片", validate_thumb=False)
             ctx.final_images_resolved = True
 
+        diagnostic_number = ctx.input.number if re.fullmatch(r"[A-Za-z0-9_-]+", ctx.input.number) else "[已隐藏]"
+        self._log(
+            f"匹配诊断: 番号={diagnostic_number} 阶段=详情 命中={'是' if res is not None and is_valid(res.title) else '否'}"
+        )
         return res
 
     @staticmethod
@@ -1071,6 +1083,8 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
         else:
             self._log(f"🟠 预告片[最终]: cid={content_cid} 未获取到可用链接")
 
+        review = data.reviewSummary
+        score = "" if review is None or review.averagePoint is None else str(review.averagePoint)
         return CrawlerData(
             title=str(data.title or ""),
             outline=str(data.description or ""),
@@ -1080,7 +1094,10 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             actors=[a.name for a in (data.actresses or []) if a and a.name],
             poster=str(data.packageImage or ""),
             thumb=str(data.packageLargeImage or ""),
-            score="" if data.reviewSummary is None else str(data.reviewSummary.averagePoint),
+            score=score,
+            # DMM 用户评分为 5 点満点
+            score_max="5" if score else "",
+            score_count="" if review is None or review.reviewerCount is None else str(review.reviewerCount),
             series="" if data.series is None else str(data.series.name or ""),
             directors=[d.name for d in (data.directors or []) if d and d.name],
             studio="" if data.maker is None else str(data.maker.name or ""),
@@ -1115,6 +1132,8 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
         if r := [item.staffName for item in data.staffs if item.roleName in ["制作プロダクション", "制作", "制作著作"]]:
             studio = r[0]
 
+        review = data.reviewSummary
+        score = "" if review.averagePoint is None else str(review.averagePoint)
         return CrawlerData(
             title=data.titleName,
             outline=data.description,
@@ -1124,7 +1143,10 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             tags=[item.name for item in data.genres],
             release=data.startPublicAt,  # 2025-05-17T20:00:00Z
             year=str(data.productionYear),
-            score=str(data.reviewSummary.averagePoint),
+            score=score,
+            # DMM 用户评分为 5 点満点
+            score_max="5" if score else "",
+            score_count="" if review.reviewerCount is None else str(review.reviewerCount),
             directors=[item.staffName for item in data.staffs if item.roleName == "監督"],
             studio=studio,
             publisher=studio,
@@ -1185,6 +1207,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
         sample_images = [str(item.largeImageUrl or "").strip() for item in (data.sampleImages or []) if item]
 
         ctx.debug(f"digital GraphQL 请求成功: {content_id=} {detail_url=}")
+        score = "" if review is None or review.average is None else str(review.average)
         return CrawlerData(
             title=str(data.title or ""),
             outline=outline,
@@ -1194,7 +1217,9 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             directors=[item.name for item in (data.directors or []) if item and item.name],
             thumb=str(package_image.largeUrl or ""),
             poster=str(package_image.mediumUrl or ""),
-            score="" if review is None or review.average is None else str(review.average),
+            score=score,
+            # DMM 用户评分为 5 点満点；digital 既有请求不含评分人数，不为其增加请求
+            score_max="5" if score else "",
             series="" if data.series is None else str(data.series.name or ""),
             studio="" if data.maker is None else str(data.maker.name or ""),
             publisher="" if data.label is None else str(data.label.name or ""),

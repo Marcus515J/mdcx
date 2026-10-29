@@ -2721,9 +2721,11 @@ class MyMAinWindow(QMainWindow):
         <type>类型：演员</type>\n\
     </actor>\n\
     <director>导演</director>\n\
-    <rating>评分</rating>\n\
-    <criticrating>影评人评分</criticrating>\n\
-    <votes>想看人数</votes>\n\
+    <rating>评分（10 分制）</rating>\n\
+    <ratingsource>评分来源</ratingsource>\n\
+    <votes>评分人数</votes>\n\
+    <wanted>想看人数</wanted>\n\
+    <wantedsource>想看人数来源</wantedsource>\n\
     <year>年份</year>\n\
     <runtime>时长</runtime>\n\
     <series>系列</series>\n\

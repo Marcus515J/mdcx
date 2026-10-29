@@ -175,6 +175,8 @@ class GigaCrawler(BaseCrawler):
             year=get_year(release),
             runtime=get_runtime(detail_page),
             score=get_score(html_content),
+            # 页面原文「5点満点中」
+            score_max="5" if get_score(html_content) else "",
             series="",
             studio="GIGA",
             publisher="GIGA",

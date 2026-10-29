@@ -205,6 +205,7 @@ class JavlibraryCrawler(BaseCrawler):
             raise CralwerException("详情页番号不匹配！")
         title = title.replace(web_number + " ", "")
         release = get_release(html_detail)
+        score = get_score(html_detail)
         return CrawlerData(
             number=web_number,
             title=title,
@@ -216,7 +217,9 @@ class JavlibraryCrawler(BaseCrawler):
             release=release,
             year=get_year(release),
             runtime=get_runtime(html_detail),
-            score=get_score(html_detail),
+            score=score,
+            # JavLibrary 评分为 10 分制（详情页 span.score 括号内分值如 (8.60)）；页面不提供投票人数
+            score_max="10" if score else "",
             series="",
             directors=split_csv(get_director(html_detail)),
             studio=get_studio(html_detail),

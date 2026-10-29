@@ -516,6 +516,8 @@ class Jav321Crawler(BaseCrawler):
             year=getYear(release),
             runtime=getRuntime(response),
             score=getScore(response),
+            # 平均评价图片数字 ÷10（如 45→4.5），满分为 5
+            score_max="5" if getScore(response) else "",
             series=getSeries(detail_page),
             directors=[],
             studio=studio,

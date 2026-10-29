@@ -55,6 +55,8 @@ class CrawlerData:
     release: FieldValue = NOT_SUPPORT
     runtime: FieldValue = NOT_SUPPORT
     score: FieldValue = NOT_SUPPORT
+    score_max: FieldValue = NOT_SUPPORT
+    score_count: FieldValue = NOT_SUPPORT
     series: FieldValue = NOT_SUPPORT
     studio: FieldValue = NOT_SUPPORT
     tags: FieldValue[list[str]] = NOT_SUPPORT

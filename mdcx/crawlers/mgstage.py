@@ -129,8 +129,8 @@ def getOutline(html):
 def getScore(html):
     result = html.xpath('//td[@class="review"]/span/@class')
     if result:
-        result = f"{int(result[0].replace('star_', '')[:2]) / 10:.1f}"
-    return str(result)
+        return f"{int(result[0].replace('star_', '')[:2]) / 10:.1f}"
+    return ""
 
 
 def remove_number_leading_zero(number: str) -> str:
@@ -195,6 +195,7 @@ class MgstageCrawler(BaseCrawler):
         cover_url = getCover(htmlcode)
         release = getRelease(htmlcode).strip(",").replace("/", "-")
         tag = getTag(htmlcode).strip(",")
+        score = getScore(htmlcode).strip(",")
         return CrawlerData(
             number=number,
             title=title,
@@ -207,7 +208,9 @@ class MgstageCrawler(BaseCrawler):
             release=release,
             year=getYear(release).strip(","),
             runtime=getRuntime(htmlcode).strip(","),
-            score=getScore(htmlcode).strip(","),
+            score=score,
+            # star_XX 换算（XX/10）对应 5 星满分
+            score_max="5" if score else "",
             series=getSeries(htmlcode).strip(","),
             studio=getStudio(htmlcode).strip(","),
             publisher=getPublisher(htmlcode).strip(","),

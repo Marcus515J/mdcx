@@ -94,8 +94,13 @@ def getOutline(html):  # 获取简介
             "Product description",
             "Description",
             "もっとみる",
+            "もっと見る",
             "See more",
+            "看更多",
+            "看更多内容",
+            "看更多內容",
             "查看更多",
+            "查看更多内容",
             "查看更多內容",
         }
     ]
@@ -122,7 +127,7 @@ def getRuntime(html):  # 获取时长（分钟）
     return str(runtime)
 
 
-def getScore(html):  # 获取评分
+def getScoreInfo(html):  # 获取评分、满分、评分人数（均来自同一份 JSON-LD aggregateRating）
     result = html.xpath('//script[@type="application/ld+json"]/text()')
     for each in result:
         each = each.strip()
@@ -146,8 +151,16 @@ def getScore(html):  # 获取评分
                 continue
             score = aggregate_rating.get("ratingValue")
             if score not in [None, ""]:
-                return str(score)
-    return ""
+                # schema.org: bestRating 缺省时按 5 处理
+                score_max = str(aggregate_rating.get("bestRating") or 5)
+                rating_count = aggregate_rating.get("ratingCount")
+                score_count = str(rating_count) if rating_count not in [None, ""] else ""
+                return str(score), score_max, score_count
+    return "", "", ""
+
+
+def getScore(html):  # 获取评分
+    return getScoreInfo(html)[0]
 
 
 async def getTrailer(client, number):  # 获取预告片
@@ -227,6 +240,7 @@ class Fc2Crawler(BaseCrawler):
         studio = getStudio(html_info)
         actor = studio if FieldRule.FC2_SELLER in manager.config.fields_rule else ""
         tag = tag.replace("無修正,", "").replace("無修正", "").strip(",")
+        score, score_max, score_count = getScoreInfo(html_info)
         data = CrawlerData(
             number="FC2-" + str(number),
             title=title,
@@ -238,7 +252,9 @@ class Fc2Crawler(BaseCrawler):
             release=release,
             year=release[:4],
             runtime=getRuntime(html_info),
-            score=getScore(html_info),
+            score=score,
+            score_max=score_max,
+            score_count=score_count,
             series="FC2系列",
             directors=[],
             studio=studio,

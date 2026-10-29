@@ -7,6 +7,21 @@ from ..config.enums import FixedScrapingType, Language, Website
 from ..gen.field_enums import CrawlerResultFields
 
 
+def score_to_10(score: str, score_max: str) -> str:
+    """
+    将来源原始分制的评分换算为 10 分制, 保留两位小数.
+    评分缺失、为 0 或满分未知时返回空串.
+    """
+    try:
+        value = float(score)
+        maximum = float(score_max)
+    except (TypeError, ValueError):
+        return ""
+    if value <= 0 or maximum <= 0:
+        return ""
+    return str(round(value * 10 / maximum, 2))
+
+
 @dataclass
 class FileInfo:
     """
@@ -179,7 +194,9 @@ class BaseCrawlerResult:
     publisher: str  # 发行商
     release: str  # 发行日期
     runtime: str  # 片长（分钟）
-    score: str  # 评分
+    score: str  # 评分（来源原始分制）
+    score_max: str  # 来源评分满分, 未知为空
+    score_count: str  # 与评分同来源的真实评分人数, 未知为空
     series: str  # 系列
     studio: str  # 制作商
     tags: list[str]
@@ -279,6 +296,8 @@ class BaseCrawlerResult:
             release="",
             runtime="",
             score="",
+            score_max="",
+            score_count="",
             series="",
             studio="",
             tags=[],
