@@ -385,7 +385,6 @@ def load_config(self: "MyMAinWindow"):
             (self.Ui.checkBox_nfo_runtime, NfoInclude.RUNTIME),
             (self.Ui.checkBox_nfo_wanted, NfoInclude.WANTED),
             (self.Ui.checkBox_nfo_score, NfoInclude.SCORE),
-            (self.Ui.checkBox_nfo_criticrating, NfoInclude.CRITICRATING),
             (self.Ui.checkBox_nfo_actor, NfoInclude.ACTOR),
             (self.Ui.checkBox_nfo_all_actor, NfoInclude.ACTOR_ALL),
             (self.Ui.checkBox_nfo_director, NfoInclude.DIRECTOR),

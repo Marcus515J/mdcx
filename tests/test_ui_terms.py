@@ -52,6 +52,44 @@ def test_cookie_help_bracketed_terms_exist_in_ui_or_controllers():
     assert not missing, f"The following UI terms in cookie_help.html do not exist in MDCx.ui or controllers: {missing}"
 
 
+def test_readme_and_changelog_ui_terms_allow_only_the_retired_release_note():
+    _, _, corpus = _build_ui_and_controller_corpus()
+    historical_note = "界面「影评人评分（criticrating）」勾选项已无效果"
+    for name in ("README.md", "changelog.md"):
+        text = Path(name).read_text(encoding="utf-8")
+        if name == "changelog.md":
+            # Only v1.2.0's published note is exempt; current/future notes are still checked.
+            sections = re.split(r"(?m)(^# MDCx v[^\n]+\n)", text)
+            index = sections.index("# MDCx v1.2.0\n")
+            sections[index + 1] = sections[index + 1].replace(historical_note, "", 1)
+            text = "".join(sections)
+        else:
+            # README retains the v1.2.0 release summary; exempt this retirement statement only.
+            text = text.replace(historical_note, "", 1)
+        missing = [term for term in set(re.findall(r"「(.*?)」", text)) if term not in corpus]
+        assert not missing, (name, missing)
+
+
+def test_removed_nfo_checkbox_is_absent_from_generated_window():
+    from PyQt6.QtWidgets import QApplication, QCheckBox, QMainWindow
+
+    from mdcx.views.MDCx import Ui_MDCx
+
+    root = ET.parse("mdcx/views/MDCx.ui").getroot()
+    assert root.find('.//widget[@name="checkBox_nfo_criticrating"]') is None
+    app = QApplication.instance() or QApplication([])
+    window = QMainWindow()
+    ui = Ui_MDCx()
+    try:
+        ui.setupUi(window)
+        window.show()
+        app.processEvents()
+        assert window.findChild(QCheckBox, "checkBox_nfo_criticrating") is None
+        assert ui.checkBox_nfo_score.text() == "公众评分（score）"
+    finally:
+        window.close()
+
+
 def test_cookie_help_content_requirements():
     cookie_html = resources.cookie_help_path.read_text(encoding="utf-8")
 
@@ -237,7 +275,6 @@ def test_issue_40_acceptance_steps_ui_terms():
         ("pushButton_save_config", "text", "保存"),
         ("pushButton_start_cap", "text", "开始"),
         ("checkBox_nfo_score", "text", "公众评分（score）"),
-        ("checkBox_nfo_criticrating", "text", "影评人评分（criticrating）"),
     ]
     for name, prop, expected in checks:
         node = root.find(f'.//*[@name="{name}"]')

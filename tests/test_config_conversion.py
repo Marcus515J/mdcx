@@ -1,7 +1,10 @@
 import json
 from pathlib import Path
 
-from mdcx.config.enums import DownloadableFile, FixedScrapingType, HDPicSource, KeepableFile, Website
+import pytest
+
+from mdcx.config.enums import DownloadableFile, FixedScrapingType, HDPicSource, KeepableFile, NfoInclude, Website
+from mdcx.config.manager import ConfigManager
 from mdcx.config.models import DEFAULT_FIELD_SITE_PRIORITY, Config
 from mdcx.config.resource_policy import resource_policy
 from mdcx.config.v1 import ConfigV1
@@ -107,6 +110,43 @@ def test_from_legacy():
     assert config.file_moword is True
     assert config.folder_hd is True
     assert config.file_hd is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("options", [["score", "criticrating", "wanted"], "score,criticrating,wanted,"])
+async def test_old_json_ignores_removed_nfo_option_without_changing_other_settings(tmp_path, monkeypatch, options):
+    expected = Config(nfo_include_new=[NfoInclude.SCORE, NfoInclude.WANTED], thread_number=3, request_interval=7)
+    expected.translate_config.llm_model = "keep-existing-model"
+    expected.translate_config.llm_prompt_title = "keep-existing-prompt"
+    expected_data = expected.model_dump(mode="json")
+    data = expected.model_dump(mode="json")
+    data["nfo_include_new"] = options
+    original = json.dumps(data, ensure_ascii=False)
+    config_path = tmp_path / "old-config.json"
+    config_path.write_text(original, encoding="utf-8")
+    mark_file = tmp_path / "MDCx.config"
+    mark_file.write_text(str(config_path), encoding="utf-8")
+    monkeypatch.setattr("mdcx.config.manager.MARK_FILE", mark_file)
+
+    loader = ConfigManager()
+    try:
+        assert loader.load() == []  # UI only shows a warning dialog when this list is nonempty.
+        assert loader.config.model_dump(mode="json") == expected_data
+        assert config_path.read_text(encoding="utf-8") == original
+        loader.save()
+        assert json.loads(config_path.read_text(encoding="utf-8")) == expected_data
+    finally:
+        await loader.computed.close()
+
+
+def test_old_ini_ignores_removed_nfo_option_without_changing_other_settings():
+    legacy = ConfigV1(nfo_include_new="score,criticrating,wanted,", thread_number=3, thread_time=7)
+    expected = ConfigV1(nfo_include_new="score,wanted,", thread_number=3, thread_time=7)
+
+    config = Config.from_legacy(legacy.__dict__.copy())
+
+    assert config.model_dump() == Config.from_legacy(expected.__dict__.copy()).model_dump()
+    assert config.nfo_include_new == [NfoInclude.SCORE, NfoInclude.WANTED]
 
 
 def test_config_update_removes_old_youma_poster_option_without_enabling_new_option():

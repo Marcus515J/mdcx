@@ -173,7 +173,6 @@ class NfoInclude(Enum):
     RUNTIME = "runtime"
     WANTED = "wanted"
     SCORE = "score"
-    CRITICRATING = "criticrating"
     ACTOR = "actor"
     ACTOR_ALL = "actor_all"
     DIRECTOR = "director"
