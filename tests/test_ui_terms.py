@@ -60,8 +60,9 @@ def test_readme_and_changelog_ui_terms_allow_only_the_retired_release_note():
         if name == "changelog.md":
             # Only v1.2.0's published note is exempt; current/future notes are still checked.
             sections = re.split(r"(?m)(^# MDCx v[^\n]+\n)", text)
-            index = sections.index("# MDCx v1.2.0\n")
-            sections[index + 1] = sections[index + 1].replace(historical_note, "", 1)
+            for index, section in enumerate(sections[:-1]):
+                if section == "# MDCx v1.2.0\n":
+                    sections[index + 1] = sections[index + 1].replace(historical_note, "", 1)
             text = "".join(sections)
         else:
             # README retains the v1.2.0 release summary; exempt this retirement statement only.
