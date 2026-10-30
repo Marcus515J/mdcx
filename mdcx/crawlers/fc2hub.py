@@ -5,10 +5,13 @@ from typing import override
 
 from lxml import etree
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.enums import FieldRule, Website
 from ..config.manager import manager
 from ..signals import signal
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerNotFound, CrawlerRequestError
 
 
 def getTitle(html):  # 获取标题
@@ -302,7 +305,8 @@ async def getTrailer(client, html, number):  # 获取预告片
         return ""
     try:
         data = json.loads(response)
-    except Exception:
+    except Exception as parse_error:
+        record_parse_error(parse_error)
         return ""
 
     trailer_url = data.get("path")
@@ -340,24 +344,24 @@ class Fc2hubCrawler(BaseCrawler):
             ctx.debug_info.search_urls = [search_url]
             html_search, error = await self.async_client.get_text(search_url)
             if html_search is None:
-                raise CralwerException(f"网络请求错误: {error}")
+                raise CrawlerRequestError(f"网络请求错误: {error}")
             html = etree.fromstring(html_search, etree.HTMLParser())
             real_urls = html.xpath("//link[contains(@href, $number)]/@href", number="id" + number)
             if not real_urls:
-                raise CralwerException("搜索结果: 未匹配到番号！")
+                raise CrawlerNotFound("搜索结果: 未匹配到番号！")
             language_not_jp = ["/tw/", "/ko/", "/en/"]
             for url in real_urls:
                 if all(la not in url for la in language_not_jp):
                     real_url = url
                     break
             if not real_url:
-                raise CralwerException("搜索结果: 未匹配到日文详情页！")
+                raise CrawlerNotFound("搜索结果: 未匹配到日文详情页！")
 
         ctx.debug(f"番号地址: {real_url}")
         ctx.debug_info.detail_urls = [real_url]
         html_content, error = await self.async_client.get_text(real_url)
         if html_content is None:
-            raise CralwerException(f"网络请求错误: {error}")
+            raise CrawlerRequestError(f"网络请求错误: {error}")
         html_info = etree.fromstring(html_content, etree.HTMLParser())
 
         title = getTitle(html_info)

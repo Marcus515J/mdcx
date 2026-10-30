@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from re import Pattern
 
 from mdcx.core.mosaic import normalize_mosaic
+from mdcx.models.crawl_status import CrawlStatus
 from mdcx.models.types import CrawlerDebugInfo, CrawlerInput, CrawlerResult
 from mdcx.utils.dataclass import update_valid
 
@@ -76,7 +77,21 @@ class CrawlerData:
         return result
 
 
-class CralwerException(Exception): ...
+class CralwerException(Exception):
+    status = CrawlStatus.PARSE_ERROR
+
+
+class CrawlerNotFound(CralwerException):
+    status = CrawlStatus.NOT_FOUND
+
+
+class CrawlerRequestError(CralwerException):
+    status = CrawlStatus.REQUEST_ERROR
+
+    def __init__(self, message: str):
+        super().__init__(message)
+        if re.search(r"\bHTTP 404\b", message):
+            self.status = CrawlStatus.NOT_FOUND
 
 
 @dataclass

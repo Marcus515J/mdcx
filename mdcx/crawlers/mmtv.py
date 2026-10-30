@@ -8,6 +8,7 @@ from parsel import Selector
 from ..config.models import Website
 from ..number import is_uncensored
 from .base import BaseCrawler, CralwerException, CrawlerData
+from .base.types import CrawlerNotFound
 from .guochan import get_extra_info
 
 
@@ -186,7 +187,7 @@ class MmtvCrawler(BaseCrawler):
         search_page = etree.fromstring(html.get(), etree.HTMLParser())
         detail_url = get_real_url(search_page, ctx.input.number)
         if not detail_url:
-            raise CralwerException("搜索结果: 未匹配到番号")
+            raise CrawlerNotFound("搜索结果: 未匹配到番号")
         return [detail_url]
 
     @override

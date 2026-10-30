@@ -4,9 +4,12 @@ from typing import override
 
 from lxml import etree
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..base.web import check_url
 from ..config.enums import Website
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerRequestError
 
 seesaawiki_request_fail_flag = False
 
@@ -105,7 +108,8 @@ class MywifeCrawler(BaseCrawler):
                     "website": website,
                 }
             return mywife_dic
-        except Exception:
+        except Exception as parse_error:
+            record_parse_error(parse_error)
             return False
 
     async def get_number_data(self, number):
@@ -166,7 +170,7 @@ class MywifeCrawler(BaseCrawler):
             ctx.debug_info.search_urls = [search_url]
             html_content, error = await self.async_client.get_text(search_url)
             if html_content is None:
-                raise CralwerException(f"网络请求错误: {error}")
+                raise CrawlerRequestError(f"网络请求错误: {error}")
             html_info = etree.fromstring(html_content, etree.HTMLParser())
             first_url = get_first_url(html_info, key)
 
@@ -174,7 +178,7 @@ class MywifeCrawler(BaseCrawler):
                 ctx.debug(f"中间页地址: {first_url}")
                 html_content, error = await self.async_client.get_text(first_url)
                 if html_content is None:
-                    raise CralwerException(f"网络请求错误: {error}")
+                    raise CrawlerRequestError(f"网络请求错误: {error}")
                 html_info = etree.fromstring(html_content, etree.HTMLParser())
                 real_url = get_second_url(html_info)
                 if not real_url:
@@ -188,7 +192,7 @@ class MywifeCrawler(BaseCrawler):
         ctx.debug_info.detail_urls = [real_url]
         html_content, error = await self.async_client.get_text(real_url)
         if html_content is None:
-            raise CralwerException(f"网络请求错误: {error}")
+            raise CrawlerRequestError(f"网络请求错误: {error}")
         html_info = etree.fromstring(html_content, etree.HTMLParser())
         number, title = get_title(html_info)
         if not title:

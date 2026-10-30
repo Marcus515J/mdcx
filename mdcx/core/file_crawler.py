@@ -1,3 +1,4 @@
+import copy
 import re
 from dataclasses import dataclass
 from datetime import date
@@ -8,6 +9,7 @@ from ..config.enums import FixedScrapingType
 from ..config.models import Language, Website
 from ..gen.field_enums import CrawlerResultFields
 from ..manual import ManualConfig
+from ..models.crawl_status import CrawlIssue, CrawlStatus, SiteReport
 from ..models.enums import FileMode
 from ..models.flags import Flags
 from ..models.log_buffer import LogBuffer
@@ -215,6 +217,10 @@ class FileScraper:
     def __init__(self, config: "Config", crawler_provider: "CrawlerProviderProtocol"):
         self.config = config
         self.crawler_provider = crawler_provider
+        self.responses: dict[tuple, CrawlerResponse] = {}
+        self.request_caches: dict[tuple, dict] = {}
+        self.reports: list[SiteReport] = []
+        self.raw_result: CrawlersResult | None = None
 
     @staticmethod
     def _is_invalid_runtime(value: object) -> bool:
@@ -278,8 +284,38 @@ class FileScraper:
 
             # 移除外层超时限制，让内层的 GatherGroup 处理超时和重试
             # 原有的超时机制已由各个 HTTP 请求单独处理
-            r = await c.run(task_input)
+            language = task_input.language if website in MULTI_LANGUAGE_WEBSITES else Language.UNDEFINED
+            key = (website, language)
+            if key in self.responses:
+                r = copy.deepcopy(self.responses[key])
+            else:
+                task_input.request_cache = self.request_caches.setdefault(key, {})
+                r = await c.run(task_input)
+                if r.report is None:
+                    error = r.debug_info.error
+                    status = getattr(error, "status", CrawlStatus.REQUEST_ERROR)
+                    r.report = SiteReport(website.value, [CrawlIssue(status, str(error))] if error else [])
+                if any(issue.status == CrawlStatus.PARSE_ERROR for issue in r.report.issues):
+                    # A successfully downloaded but malformed page must be fetched again.
+                    self.request_caches[key].clear()
+                if not r.report.has_error:
+                    self.responses[key] = copy.deepcopy(r)
+            if r.report not in self.reports:
+                self.reports.append(r.report)
             return r
+        except Exception as error:
+            self.reports.append(
+                SiteReport(
+                    website.value,
+                    [
+                        CrawlIssue(
+                            CrawlStatus.REQUEST_ERROR if isinstance(error, TimeoutError) else CrawlStatus.PARSE_ERROR,
+                            type(error).__name__,
+                        )
+                    ],
+                )
+            )
+            raise
         finally:
             task_input.number = original_number
 
@@ -707,7 +743,10 @@ class FileScraper:
         site = self._get_site(task_input, file_mode)
         if site is not None:
             site = Website(site)
+        self.reports = []
         res = await self._crawl(task_input, site)
+        self.raw_result = copy.deepcopy(res)
         if res is None:
             return None
-        return _deal_res(res)
+        self.last_result = _deal_res(res)
+        return self.last_result

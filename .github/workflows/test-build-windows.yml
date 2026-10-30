@@ -1,0 +1,47 @@
+name: Temporary Windows test package (Issue 61)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-package-61-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: '3.13'
+      - name: Install locked dependencies
+        run: uv sync --locked --dev
+      - name: Verify affected behavior offline
+        run: uv run --locked pytest -q tests/test_scrape_quality.py tests/test_ui_terms.py tests/test_nfo_rating.py
+      - name: Build and verify Windows executable
+        run: |
+          uv run --locked python scripts/build.py --version v1.2.0 --debug
+          uv run --locked python scripts/check_release_version.py v1.2.0 --bundle dist/MDCx.exe
+      - name: Name package and checksum
+        shell: pwsh
+        run: |
+          $buildId = (git rev-parse --short=7 HEAD).Trim()
+          $packageName = "MDCx-v1.2.0-TEST-$buildId-windows-x86_64.exe"
+          New-Item -ItemType Directory -Path test-package | Out-Null
+          Copy-Item dist/MDCx.exe "test-package/$packageName"
+          $packageHash = (Get-FileHash "test-package/$packageName" -Algorithm SHA256).Hash.ToLower()
+          "$packageHash  $packageName" | Set-Content -Encoding utf8 "test-package/MDCx-v1.2.0-TEST-$buildId-SHA256SUMS.txt"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: MDCx-issue-61-windows-test
+          path: test-package/*
+          if-no-files-found: error
+          retention-days: 1

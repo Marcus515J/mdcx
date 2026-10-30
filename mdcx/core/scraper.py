@@ -1,4 +1,5 @@
 import asyncio
+import copy as copy_module
 import time
 import traceback
 from pathlib import Path
@@ -45,6 +46,14 @@ from .file_crawler import FileScraper, classify_existing_scrape_result, classify
 from .image import add_mark
 from .media_resource import MediaResourceContext
 from .nfo import get_nfo_data, write_nfo
+from .scrape_quality import (
+    QualityDeferred,
+    QualityHeld,
+    error_summary,
+    missing_required,
+    recovery_summary,
+    retryable_sites,
+)
 from .translate import translate_actor, translate_info, translate_title_outline
 from .utils import (
     add_definition_tag,
@@ -91,6 +100,14 @@ def _should_process_metadata(
 class Scraper:
     def __init__(self, crawler_provider: "CrawlerProviderProtocol"):
         self.crawler_provider = crawler_provider
+        self._quality_pending: dict[Path, FileScraper] = {}
+        self._quality_by_number: dict[str, FileScraper] = {}
+        self._quality_first: dict[Path, tuple] = {}
+        self._quality_retrying = False
+        self._quality_locks: dict[str, asyncio.Lock] = {}
+        self._quality_resolved: dict[str, tuple] = {}
+        self._quality_summaries: list[str] = []
+        self._quality_completed_attempts = 0
 
     async def _run_tasks_with_limit(self, movie_list: list[Path], task_count: int, thread_number: int) -> None:
         task_iter = iter(enumerate(movie_list, 1))
@@ -166,6 +183,14 @@ class Scraper:
 
     async def _run(self, file_mode: FileMode, movie_list: list[Path] | None) -> None:
         Flags.reset()
+        self._quality_pending.clear()
+        self._quality_by_number.clear()
+        self._quality_first.clear()
+        self._quality_summaries.clear()
+        self._quality_locks.clear()
+        self._quality_resolved.clear()
+        self._quality_retrying = False
+        self._quality_completed_attempts = 0
         if movie_list is None:
             movie_list = []
         Flags.scrape_start_time = time.time()  # 开始刮削时间
@@ -252,6 +277,14 @@ class Scraper:
 
             # 异步并发（按并发数渐进投喂任务，避免大列表一次性创建海量协程）
             await self._run_tasks_with_limit(movie_list, task_count, thread_number)
+            if self._quality_pending and not (signal.stop or Flags.stop_requested):
+                self._check_stop("批末质量复查")
+                self._quality_retrying = True
+                signal.show_log_text(f"🔁 批末质量复查：{len(self._quality_pending)} 部，每部最多重刮一次")
+                await self._run_tasks_with_limit(list(self._quality_pending), task_count, thread_number)
+                self._quality_retrying = False
+            if self._quality_summaries:
+                signal.show_log_text("\n📋 刮削质量摘要\n" + "\n".join(self._quality_summaries))
             if Flags.scrape_done < task_count and not (signal.stop or Flags.stop_requested):
                 message = f"刮削异常提前结束：已完成 {Flags.scrape_done}/{task_count}，剩余 {task_count - Flags.scrape_done} 个任务未执行"
                 signal.show_traceback_log(message)
@@ -381,7 +414,8 @@ class Scraper:
                 self._check_stop(show_name)
                 await asyncio.sleep(1)
 
-        Flags.scrape_started += 1
+        if not self._quality_retrying:
+            Flags.scrape_started += 1
         if count > 1 and thread_time != 0:
             signal.show_log_text(f" 🕷 {get_current_time()} 开始刮削：{Flags.scrape_started}/{count_all} {show_name}")
 
@@ -420,6 +454,8 @@ class Scraper:
         # 获取刮削数据
         json_data = None
         other = None
+        quality_deferred = False
+        quality_held = False
         try:
             json_data, other = await self._process_one_file(file_info, file_mode)
             if json_data and other:
@@ -431,6 +467,16 @@ class Scraper:
                         Flags.json_get_status[status_number] = True
             elif origin_number in Flags.json_get_status and Flags.json_get_status[origin_number] is None:
                 Flags.json_get_status[origin_number] = False
+        except QualityDeferred:
+            quality_deferred = True
+            if origin_number in Flags.json_get_status:
+                Flags.json_get_status[origin_number] = False
+            LogBuffer.log().write("\n 🔁 请求或解析出错，暂不入库，移至批末质量复查")
+        except QualityHeld as error:
+            quality_held = True
+            if origin_number in Flags.json_get_status:
+                Flags.json_get_status[origin_number] = False
+            LogBuffer.error().write(str(error))
         except Exception as e:
             if origin_number in Flags.json_get_status and Flags.json_get_status[origin_number] is None:
                 Flags.json_get_status[origin_number] = False
@@ -444,7 +490,9 @@ class Scraper:
         try:
             show_data = ShowData.empty()
             show_data.file_info = file_info
-            if json_data and other:
+            if quality_deferred:
+                pass
+            elif json_data and other:
                 show_data.data = json_data
                 show_data.other = other
                 Flags.succ_count += 1
@@ -477,7 +525,11 @@ class Scraper:
                             "\n 🔴 该问题为权限问题：请尝试以管理员身份运行，同时关闭其他正在运行的Python脚本！"
                         )
                 failed_folder = get_movie_path_setting(file_path).failed_folder
-                fail_file_path = await move_file_to_failed_folder(failed_folder, file_path, folder_old_path)
+                fail_file_path = (
+                    file_path
+                    if quality_held
+                    else await move_file_to_failed_folder(failed_folder, file_path, folder_old_path)
+                )
                 Flags.failed_list.append((fail_file_path, LogBuffer.error().get()))
                 await self._failed_file_info_show(str(Flags.fail_count), fail_file_path, LogBuffer.error().get())
                 signal.view_failed_list_settext.emit(f"失败 {Flags.fail_count}")
@@ -489,7 +541,8 @@ class Scraper:
 
         # 显示刮削结果
         try:
-            Flags.scrape_done += 1
+            if not quality_deferred:
+                Flags.scrape_done += 1
             count = Flags.scrape_done
             progress_value = count / count_all * 100
             progress_percentage = f"{progress_value:.2f}%"
@@ -521,8 +574,9 @@ class Scraper:
         # 更新剩余任务
         try:
             try:
-                Flags.remain_list.remove(file_path)
-                Flags.can_save_remain = True
+                if not (quality_deferred or quality_held):
+                    Flags.remain_list.remove(file_path)
+                    Flags.can_save_remain = True
             except Exception as e1:
                 signal.show_log_text(f"remove:  {file_path}\n {str(e1)}\n {traceback.format_exc()}")
         except Exception as e:
@@ -531,6 +585,10 @@ class Scraper:
             signal.show_log_text(traceback.format_exc())
             signal.show_log_text(str(e))
 
+        # Deferred attempts also consume the existing batch-rest allowance.
+        self._quality_completed_attempts += 1
+        count = self._quality_completed_attempts
+        count_all = Flags.total_count + len(self._quality_pending)
         # 处理间歇刮削
         try:
             if manager.config.main_mode != 4 and Switch.REST_SCRAPE in manager.config.switch_on:
@@ -663,6 +721,8 @@ class Scraper:
         if file_classification is None:
             file_classification = classify_scrape_task(file_info.crawl_task(), manager.config)
         enable_shared_json = "." not in movie_number and file_classification.scraping_type != FixedScrapingType.GUOCHAN
+        if self._quality_retrying and file_path in self._quality_pending:
+            enable_shared_json = False
         if enable_shared_json:
             if movie_number not in Flags.json_get_status:
                 # 第一次遇到该番号，标记为“正在刮削”
@@ -675,6 +735,16 @@ class Scraper:
                 while Flags.json_get_status.get(movie_number) is None:
                     await asyncio.sleep(1)
                 if Flags.json_get_status.get(movie_number) is False:
+                    if movie_number in self._quality_by_number:
+                        pending = copy_module.copy(self._quality_by_number[movie_number])
+                        pending.responses = copy_module.deepcopy(pending.responses)
+                        pending.request_caches = copy_module.deepcopy(pending.request_caches)
+                        self._quality_pending[file_path] = pending
+                        self._quality_first[file_path] = (
+                            copy_module.deepcopy(pending.raw_result),
+                            list(pending.reports),
+                        )
+                        raise QualityDeferred()
                     LogBuffer.error().write(f"同番号任务失败，取消等待：{movie_number}")
                     return None, None
 
@@ -724,8 +794,42 @@ class Scraper:
 
             crawl_task = file_info.crawl_task()
             crawl_task.media_context = media_context
-            scraper = FileScraper(manager.config, self.crawler_provider)
-            res = await scraper.run(crawl_task, file_mode)
+            scraper = self._quality_pending.get(file_path) or FileScraper(manager.config, self.crawler_provider)
+            retried = False
+            if self._quality_retrying:
+                async with self._quality_locks.setdefault(movie_number, asyncio.Lock()):
+                    if movie_number in self._quality_resolved:
+                        scraper.raw_result, res, scraper.reports, retried = copy_module.deepcopy(
+                            self._quality_resolved[movie_number]
+                        )
+                    else:
+                        retried = bool(await retryable_sites(scraper))
+                        res = (
+                            await scraper.run(crawl_task, file_mode)
+                            if retried
+                            else copy_module.deepcopy(getattr(scraper, "last_result", None))
+                        )
+                        self._quality_resolved[movie_number] = copy_module.deepcopy(
+                            (scraper.raw_result, res, scraper.reports, retried)
+                        )
+            else:
+                res = await scraper.run(crawl_task, file_mode)
+            has_error = any(report.has_error for report in getattr(scraper, "reports", []))
+            if (has_error and bool(movie_number or file_info.appoint_url)) or file_path in self._quality_pending:
+                before, original_reports = self._quality_first.setdefault(
+                    file_path, (copy_module.deepcopy(scraper.raw_result), list(scraper.reports))
+                )
+                if not self._quality_retrying and await retryable_sites(scraper):
+                    self._quality_pending[file_path] = scraper
+                    self._quality_by_number[movie_number] = scraper
+                    raise QualityDeferred()
+                missing = missing_required(scraper.raw_result, file_classification.scraping_type)
+                reports = [*original_reports, *scraper.reports]
+                self._quality_summaries.append(
+                    recovery_summary(movie_number, before, scraper.raw_result, reports, retried=retried, held=missing)
+                )
+                if missing:
+                    raise QualityHeld("必需字段仍缺，留原地：" + ", ".join(missing) + "；" + error_summary(reports))
             if res is None:
                 return None, None
             # 处理 FileInfo 和 CrawlersResult 的共同字段, 即 number/mosaic/letters

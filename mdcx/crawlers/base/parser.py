@@ -3,6 +3,8 @@ from typing import TypedDict, Unpack
 
 from parsel import Selector
 
+from mdcx.models.crawl_status import record_parse_error
+
 from .types import NOT_SUPPORT, Context, CrawlerData, CSSSelector, FieldRes, FieldValue, SelectorType
 
 
@@ -29,7 +31,8 @@ def extract_text(html: Selector, *selector: SelectorType) -> str:
             if result:
                 return clean_string(result)
         return ""
-    except Exception:
+    except Exception as error:
+        record_parse_error(error)
         return ""
 
 
@@ -55,7 +58,8 @@ def extract_all_texts(html: Selector, *selector: SelectorType) -> list[str]:
             if results:
                 return [clean_string(r) for r in results if clean_string(r)]
         return []
-    except Exception:
+    except Exception as error:
+        record_parse_error(error)
         return []
 
 

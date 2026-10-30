@@ -2,14 +2,17 @@
 import re
 from typing import override
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.models import Website
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerNotFound, CrawlerRequestError
 
 
 def get_actor(page_data):
     actor_new_list = []
-    for each in page_data["actress"]:
-        actor_new_list.append(each["name"].replace(" ", ""))
+    for each in page_data.get("actress") or []:
+        actor_new_list.append(each.get("name", "").replace(" ", ""))
     return actor_new_list
 
 
@@ -46,13 +49,19 @@ def get_real_url(html_search, number):
 
 
 def get_media_path(page_data, key):
-    try:
-        path = page_data[key]["path"]
-        if path:
-            media_url = "https://www.prestige-av.com/api/media/" + path
-            return "" if "noimage" in media_url else media_url
-    except Exception:
+    item = page_data.get(key)
+    if item is None:
         return ""
+    if not isinstance(item, dict):
+        record_parse_error(f"{key} 应为对象")
+        return ""
+    path = item.get("path") or ""
+    if not isinstance(path, str):
+        record_parse_error(f"{key}.path 应为文本")
+        return ""
+    if path:
+        media_url = "https://www.prestige-av.com/api/media/" + path
+        return "" if "noimage" in media_url else media_url
     return ""
 
 
@@ -80,17 +89,17 @@ class PrestigeCrawler(BaseCrawler):
             ctx.debug_info.search_urls = [search_url]
             html_search, error = await self.async_client.get_json(search_url)
             if html_search is None:
-                raise CralwerException(f"网络请求错误: {error}")
+                raise CrawlerRequestError(f"网络请求错误: {error}")
             real_url = get_real_url(html_search, ctx.input.number)
             if not real_url:
-                raise CralwerException("搜索结果: 未匹配到番号！")
+                raise CrawlerNotFound("搜索结果: 未匹配到番号！")
 
         detail_url = real_url.replace("api/product", "goods")
         ctx.debug(f"番号地址: {detail_url}")
         ctx.debug_info.detail_urls = [detail_url]
         page_data, error = await self.async_client.get_json(real_url)
         if page_data is None:
-            raise CralwerException(f"网络请求错误: {error}")
+            raise CrawlerRequestError(f"网络请求错误: {error}")
 
         title = page_data["title"].replace("【配信専用】", "")
         if not title:
@@ -126,8 +135,8 @@ class PrestigeCrawler(BaseCrawler):
             title=title,
             originaltitle=title,
             actors=get_actor(page_data),
-            outline=page_data["body"],
-            originalplot=page_data["body"],
+            outline=page_data.get("body") or "",
+            originalplot=page_data.get("body") or "",
             tags=get_tag(page_data),
             release=release,
             year=get_year(release),

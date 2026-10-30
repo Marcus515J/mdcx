@@ -8,10 +8,20 @@ from typing import TYPE_CHECKING, Any, Never
 from parsel import Selector
 
 from mdcx.config.models import Website
+from mdcx.models.crawl_status import (
+    QUALITY_FIELDS,
+    CrawlStatus,
+    SiteReport,
+    observations,
+    record_parse_error,
+    record_request_error,
+    record_status,
+    request_cache,
+)
 from mdcx.models.types import CrawlerInput, CrawlerResponse, CrawlerResult
 from mdcx.web_async import CrawlRequestState, SiteCircuitOpen, crawl_request_state
 
-from .types import Context, CralwerException, CrawlerData
+from .types import Context, CralwerException, CrawlerData, CrawlerNotFound, is_valid
 
 if TYPE_CHECKING:
     from mdcx.web_async import AsyncWebClient
@@ -87,7 +97,73 @@ class GenericBaseCrawler[T: Context = Context](ABC):
     def new_context(self, input: CrawlerInput) -> T:
         raise NotImplementedError
 
+    def is_stopped(self) -> bool:
+        if self._site_failure:
+            return True
+        ban_states = getattr(self.async_client, "_site_ban_states", {})
+        state = ban_states.get(self.site().value)
+        return bool(state and state.circuit_open)
+
     async def run(self, input: CrawlerInput) -> CrawlerResponse:
+        issues = []
+        token = observations.set(issues)
+        cache_token = request_cache.set(getattr(input, "request_cache", None))
+        try:
+            response = await self._run_with_budget(input)
+            if response.data is not None:
+                for name in QUALITY_FIELDS:
+                    value = getattr(response.data, name)
+                    valid = (
+                        isinstance(value, list) and all(isinstance(item, str) for item in value)
+                        if name == "actors"
+                        else isinstance(value, str)
+                    )
+                    if not valid:
+                        record_parse_error(f"字段 {name} 类型错误")
+                        setattr(response.data, name, [] if name == "actors" else "")
+            error = response.debug_info.error
+            if isinstance(error, SiteCircuitOpen):
+                record_status(CrawlStatus.SKIPPED, error)
+            elif error is not None:
+                status = getattr(error, "status", None)
+                if isinstance(error, TimeoutError):
+                    status = CrawlStatus.REQUEST_ERROR
+                # A terminal HTTP 404 is normal absence even if a legacy caller wrapped it.
+                if status == CrawlStatus.REQUEST_ERROR:
+                    if not any(i.status == CrawlStatus.PARSE_ERROR for i in issues):
+                        record_request_error(error)
+                elif status is not None:
+                    record_status(status, error)
+                elif not issues:
+                    record_status(CrawlStatus.PARSE_ERROR, error)
+            if response.data is None and not issues:
+                record_status(CrawlStatus.NOT_FOUND, "无匹配结果")
+            missing_status = next(
+                (
+                    i.status
+                    for i in issues
+                    if i.status in {CrawlStatus.REQUEST_ERROR, CrawlStatus.PARSE_ERROR, CrawlStatus.SKIPPED}
+                ),
+                CrawlStatus.NOT_FOUND
+                if response.data is None
+                or (not response.data.title and any(i.status == CrawlStatus.NOT_FOUND for i in issues))
+                else CrawlStatus.MISSING,
+            )
+            response.report = SiteReport(
+                self.site().value,
+                issues,
+                {
+                    name: missing_status
+                    for name in QUALITY_FIELDS
+                    if not response.data or not getattr(response.data, name)
+                },
+            )
+            return response
+        finally:
+            observations.reset(token)
+            request_cache.reset(cache_token)
+
+    async def _run_with_budget(self, input: CrawlerInput) -> CrawlerResponse:
         """
         执行爬虫任务.
 
@@ -160,7 +236,7 @@ class GenericBaseCrawler[T: Context = Context](ABC):
 
             detail_urls = await self._search(ctx, search_urls)
             if not detail_urls:
-                raise CralwerException("搜索失败")
+                raise CrawlerNotFound("搜索无匹配结果")
         else:
             detail_urls = [ctx.input.appoint_url]
             ctx.debug(f"使用指定详情页 URL: {ctx.input.appoint_url}")
@@ -169,6 +245,10 @@ class GenericBaseCrawler[T: Context = Context](ABC):
         data = await self._detail(ctx, detail_urls)
         if not data:
             raise CralwerException("获取详情页数据失败")
+        if not is_valid(data.title):
+            normal_absence = any(i.status == CrawlStatus.NOT_FOUND for i in observations.get() or [])
+            if not normal_absence:
+                record_parse_error("详情页未取得有效标题")
         data.source = self.site().value  # todo use Enum directly
         data = data.to_result()
         return await self.post_process(ctx, data)
@@ -177,6 +257,7 @@ class GenericBaseCrawler[T: Context = Context](ABC):
         for search_url in search_urls:
             html, error = await self._fetch_search(ctx, search_url)
             if html is None:
+                record_request_error(error)
                 ctx.debug(f"搜索页请求失败: {error=}")
                 continue
             ctx.debug(f"搜索页请求成功: {search_url=}")
@@ -190,6 +271,7 @@ class GenericBaseCrawler[T: Context = Context](ABC):
         for detail_url in detail_urls:
             html, error = await self._fetch_detail(ctx, detail_url)
             if html is None:
+                record_request_error(error)
                 ctx.debug(f"详情页请求失败: {error=}")
                 continue
             ctx.debug(f"详情页请求成功: {detail_url=}")
@@ -198,6 +280,7 @@ class GenericBaseCrawler[T: Context = Context](ABC):
             if scraped_data and not scraped_data.external_id:
                 scraped_data.external_id = detail_url
             return scraped_data
+        raise CrawlerNotFound("详情页无可用响应")
 
     @abstractmethod
     async def _generate_search_url(self, ctx: T) -> list[str] | str | None:

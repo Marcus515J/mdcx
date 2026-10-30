@@ -5,6 +5,8 @@ from typing import override
 from lxml import etree
 from parsel import Selector
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.models import Website
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
 
@@ -23,7 +25,8 @@ def getWebNumber(html, number):
 def getActor(html):
     try:
         result = str(html.xpath('//li[@class="credit-links"]/a/text()')).strip("['']").replace("'", "")
-    except Exception:
+    except Exception as parse_error:
+        record_parse_error(parse_error)
         result = ""
     return result
 

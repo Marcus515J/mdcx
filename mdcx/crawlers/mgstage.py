@@ -5,6 +5,8 @@ from typing import override
 from lxml import etree
 from parsel import Selector
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.models import Website
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
 
@@ -13,7 +15,8 @@ def getTitle(html):
     try:
         result = str(html.xpath('//*[@id="center_column"]/div[1]/h1/text()')).strip(" ['']")
         return result.replace("/", ",")
-    except Exception:
+    except Exception as parse_error:
+        record_parse_error(parse_error)
         return ""
 
 

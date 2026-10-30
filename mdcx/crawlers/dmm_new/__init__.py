@@ -15,6 +15,7 @@ from mdcx.base.web import check_url, get_url_content_length, normalize_media_url
 from mdcx.config.enums import DownloadableFile
 from mdcx.config.manager import manager
 from mdcx.config.models import Website
+from mdcx.models.crawl_status import CrawlStatus, record_parse_error, record_request_error, record_status
 from mdcx.models.types import CrawlerInput
 from mdcx.signals import signal
 from mdcx.utils import collapse_inline_script_splits
@@ -24,8 +25,8 @@ from mdcx.web_async import AsyncWebClient
 
 from ..base import (
     Context,
-    CralwerException,
     CrawlerData,
+    CrawlerNotFound,
     DetailPageParser,
     GenericBaseCrawler,
     is_valid,
@@ -565,7 +566,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
         diagnostic_number = ctx.input.number if re.fullmatch(r"[A-Za-z0-9_-]+", ctx.input.number) else "[已隐藏]"
         if "404 Not Found" in html.css("span.d-txten::text").get(""):
             self._log(f"匹配诊断: 番号={diagnostic_number} 阶段=搜索 命中=否 原因=页面404")
-            raise CralwerException("404! 页面地址错误！")
+            raise CrawlerNotFound("404! 页面地址错误！")
 
         url_list = self._extract_search_detail_urls(html, search_url)
         if not url_list:
@@ -626,6 +627,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
 
         for category, item in categorized_results:
             if isinstance(item, Exception):  # 预计只会返回空值, 不会抛出异常
+                record_parse_error(item)
                 ctx.debug(f"预料之外的异常: {item}")
                 continue
 
@@ -1012,6 +1014,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
     async def fetch_fanza_tv(self, ctx: Context, detail_url: str) -> CrawlerData:
         cid_match = re.search(r"content=([^&/]+)", detail_url)
         if not cid_match:
+            record_parse_error("DMM 详情链接无法提取标识")
             ctx.debug(f"无法从 DMM TV URL 提取 cid: {detail_url}")
             return CrawlerData()
         content_cid = cid_match.group(1).lower()
@@ -1021,15 +1024,18 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             "POST", "https://api.tv.dmm.co.jp/graphql", json_data=fanza_tv_payload(content_cid)
         )
         if response is None:
+            record_request_error(error)
             ctx.debug(f"Fanza TV API 请求失败: {content_cid=} {error=}")
             return CrawlerData()
         try:
             resp = FanzaResp.model_validate(response)
             fanza_data = resp.data.fanzaTvPlus.content if resp.data and resp.data.fanzaTvPlus else None
         except Exception as e:
+            record_parse_error(e)
             ctx.debug(f"Fanza TV API 响应解析失败: {e}")
             return CrawlerData()
         if fanza_data is None:
+            record_status(CrawlStatus.NOT_FOUND, "API 正常空内容")
             ctx.debug(f"Fanza TV API 返回空内容: {content_cid=} {response=}")
             return CrawlerData()
         data = fanza_data
@@ -1110,6 +1116,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
     async def fetch_dmm_tv(self, ctx: Context, detail_url: str) -> CrawlerData:
         season_id = re.search(r"seasonId=(\d+)", detail_url)
         if not season_id:
+            record_parse_error("DMM 详情链接无法提取标识")
             ctx.debug(f"无法从 DMM TV URL 提取 seasonId: {detail_url}")
             return CrawlerData()
         season_id = season_id.group(1)
@@ -1119,12 +1126,14 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             "POST", "https://api.tv.dmm.com/graphql", json_data=dmm_tv_com_payload(season_id)
         )
         if response is None:
+            record_request_error(error)
             ctx.debug(f"DMM TV API 请求失败: {season_id=} {error=}")
             return CrawlerData()
         try:
             resp = DmmTvResponse.model_validate(response)
             data = resp.data.video
         except Exception as e:
+            record_parse_error(e)
             ctx.debug(f"DMM TV API 响应解析失败: {e}")
             return CrawlerData()
 
@@ -1156,6 +1165,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
     async def fetch_digital(self, ctx: DMMContext, detail_url: str) -> CrawlerData:
         content_id = self._extract_digital_content_id(detail_url)
         if not content_id:
+            record_parse_error("DMM 详情链接无法提取标识")
             ctx.debug(f"无法从数字详情页 URL 提取 id: {detail_url}")
             return CrawlerData()
 
@@ -1167,6 +1177,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             cookies=self._get_cookies(ctx),
         )
         if response is None:
+            record_request_error(error)
             ctx.debug(f"digital GraphQL 请求失败: {content_id=} {error=}")
             return CrawlerData()
 
@@ -1175,14 +1186,17 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
             digital_data = resp.data.ppvContent if resp.data else None
             review = resp.data.reviewSummary if resp.data else None
         except Exception as e:
+            record_parse_error(e)
             ctx.debug(f"digital GraphQL 响应解析失败: {content_id=} {e}")
             return CrawlerData()
         if digital_data is None:
+            record_status(CrawlStatus.NOT_FOUND, "API 正常空内容")
             ctx.debug(f"digital GraphQL 返回空内容: {content_id=} {response=}")
             return CrawlerData()
         data = digital_data
 
         if not data.id:
+            record_status(CrawlStatus.NOT_FOUND, "API 正常空内容")
             ctx.debug(f"digital GraphQL 返回空内容: {content_id=} {response=}")
             return CrawlerData()
 
@@ -1309,6 +1323,7 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
     async def fetch_and_parse(self, ctx: DMMContext, detail_url: str, parser: DetailPageParser) -> CrawlerData:
         html, error = await self._fetch_detail(ctx, detail_url)
         if html is None:
+            record_request_error(error)
             ctx.debug(f"详情页请求失败: {error=}")
             return CrawlerData()
         ctx.debug(f"详情页请求成功: {detail_url=}")

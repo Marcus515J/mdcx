@@ -5,10 +5,13 @@ from typing import override
 
 from lxml import etree
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.enums import FieldRule, Website
 from ..config.manager import manager
 from ..signals import signal
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerNotFound, CrawlerRequestError
 
 
 def getTitle(html):  # 获取标题
@@ -135,7 +138,8 @@ def getScoreInfo(html):  # 获取评分、满分、评分人数（均来自同�
             continue
         try:
             data = json.loads(each)
-        except Exception:
+        except Exception as parse_error:
+            record_parse_error(parse_error)
             continue
         if isinstance(data, dict):
             data_list = [data]
@@ -172,7 +176,8 @@ async def getTrailer(client, number):  # 获取预告片
         return ""
     try:
         data = json.loads(response)
-    except Exception:
+    except Exception as parse_error:
+        record_parse_error(parse_error)
         return ""
 
     trailer_url = data.get("path")
@@ -214,11 +219,11 @@ class Fc2Crawler(BaseCrawler):
 
         html_content, error = await self.async_client.get_text(real_url)
         if html_content is None:
-            raise CralwerException(f"网络请求错误: {error}")
+            raise CrawlerRequestError(f"网络请求错误: {error}")
         html_info = etree.fromstring(html_content, etree.HTMLParser())
 
         if isNotFoundPage(html_info):
-            raise CralwerException("搜索结果: 未匹配到番号！")
+            raise CrawlerNotFound("搜索结果: 未匹配到番号！")
         if not isDetailPage(html_info):
             raise CralwerException("数据获取失败: 未进入影片详情页！")
 
@@ -227,8 +232,6 @@ class Fc2Crawler(BaseCrawler):
             raise CralwerException("数据获取失败: 未获取到title！")
 
         cover_url, extrafanart = getCover(html_info)
-        if "http" not in cover_url:
-            raise CralwerException("数据获取失败: 未获取到cover！")
 
         tag = getTag(html_info)
         release = getRelease(html_info)

@@ -6,10 +6,13 @@ from typing import override
 
 from lxml import etree
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.enums import Website
 from ..config.manager import manager
 from ..signals import signal
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerNotFound, CrawlerRequestError
 
 
 def get_web_number(html):
@@ -36,7 +39,8 @@ def get_actor(html):
     try:
         actor_list = html.xpath('//*[contains(text(), "女優") or contains(text(), "女优")]//a/text()')
         result = ",".join(actor_list)
-    except Exception:
+    except Exception as parse_error:
+        record_parse_error(parse_error)
         result = ""
     return result
 
@@ -68,11 +72,12 @@ def get_tag(html):
 
 
 def get_cover(html):
-    result = html.xpath('//script[@type="application/ld+json"]/text()')[0]
-    if result:
-        data_dict = json.loads(result)
-        result = data_dict.get("thumbnailUrl", "")[0]
-    return result if result else ""
+    scripts = html.xpath('//script[@type="application/ld+json"]/text()')
+    if not scripts:
+        return ""
+    data_dict = json.loads(scripts[0])
+    result = data_dict.get("thumbnailUrl") or ""
+    return (result[0] if result else "") if isinstance(result, list) else result
 
 
 def get_outline(html):
@@ -96,7 +101,7 @@ def get_series(html):
 async def retry_request(client, real_url):
     html_content, error = await client.get_text(real_url)
     if html_content is None:
-        raise CralwerException(f"网络请求错误: {error}")
+        raise CrawlerRequestError(f"网络请求错误: {error}")
     html_info = etree.fromstring(html_content, etree.HTMLParser())
     title = get_title(html_info)
     if not title:
@@ -165,14 +170,14 @@ class AiravCcCrawler(BaseCrawler):
             ctx.debug_info.search_urls = [search_url]
             html_search, error = await self.async_client.get_text(search_url)
             if html_search is None:
-                raise CralwerException(f"网络请求错误: {error}")
+                raise CrawlerRequestError(f"网络请求错误: {error}")
             html = etree.fromstring(html_search, etree.HTMLParser())
             real_urls = html.xpath('//div[@class="col oneVideo"]//a[@href]/@href')
             if not real_urls:
-                raise CralwerException("搜索结果: 未匹配到番号！")
+                raise CrawlerNotFound("搜索结果: 未匹配到番号！")
             real_url = real_urls[0] if len(real_urls) == 1 else get_real_url(html, number)
             if not real_url:
-                raise CralwerException("搜索结果: 未匹配到番号！")
+                raise CrawlerNotFound("搜索结果: 未匹配到番号！")
 
         real_url = urllib.parse.urljoin(airav_url, real_url) if real_url.startswith("/") else real_url
         ctx.debug(f"番号地址: {real_url}")

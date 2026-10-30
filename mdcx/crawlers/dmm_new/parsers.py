@@ -7,6 +7,8 @@ from typing import override
 from parsel import Selector
 from pydantic import BaseModel
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..base import Context, CrawlerData, DetailPageParser, FieldRes, c, extract_all_texts, extract_text
 
 
@@ -313,6 +315,8 @@ class DigitalParser(DetailPageParser):
                     if json_data.aggregateRating.ratingCount is not None:
                         d.score_count = str(json_data.aggregateRating.ratingCount)
         except Exception as e:
+            if json_data:
+                record_parse_error(e)
             ctx.debug(f"解析 JSON-LD 失败: {e} {json_data=}")
             pass
 

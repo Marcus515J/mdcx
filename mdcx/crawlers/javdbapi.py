@@ -12,6 +12,7 @@ from mdcx.models.types import CrawlerResult
 from mdcx.signals import signal
 
 from .base import CralwerException, CrawlerData
+from .base.types import CrawlerNotFound, CrawlerRequestError
 from .dmm_new import DMMContext, DmmCrawler
 
 
@@ -92,7 +93,7 @@ class JavdbApiCrawler(DmmCrawler):
 
         response, error = await self.async_client.get_json(api_url, headers={"Accept": "application/json"})
         if response is None:
-            raise CralwerException(f"API 请求失败: {error}")
+            raise CrawlerRequestError(f"API 请求失败: {error}")
 
         try:
             movie = JavdbApiMovie.model_validate(response)
@@ -103,7 +104,7 @@ class JavdbApiCrawler(DmmCrawler):
         data = self._to_crawler_data(movie, fallback_number=number)
         if not data.title and not data.thumb:
             ctx.debug(f"API 返回空内容: {response=}")
-            raise CralwerException("API 返回空内容")
+            raise CrawlerNotFound("API 返回空内容")
 
         if data.external_id:
             ctx.debug_info.detail_urls = [str(data.external_id)]

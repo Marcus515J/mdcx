@@ -8,6 +8,7 @@ from lxml import etree
 from ..config.models import Website
 from ..models.types import CrawlerResult
 from .base import BaseCrawler, CralwerException, CrawlerData
+from .base.types import CrawlerNotFound, CrawlerRequestError
 from .guochan import get_number_list
 
 
@@ -134,7 +135,7 @@ class CnmdbCrawler(BaseCrawler):
             if result:
                 return self._to_data(number, title, actor, real_url, cover_url, studio, series)
 
-        raise CralwerException("没有匹配的搜索结果")
+        raise CrawlerNotFound("没有匹配的搜索结果")
 
     async def _fetch_and_parse_detail(self, ctx, detail_url: str, *, ignore_empty: bool = False) -> CrawlerData | None:
         response, error = await self.async_client.get_text(detail_url)
@@ -142,7 +143,7 @@ class CnmdbCrawler(BaseCrawler):
             ctx.debug(f"详情页请求失败: {error=}")
             if ignore_empty:
                 return None
-            raise CralwerException("没有找到数据")
+            raise CrawlerRequestError(f"详情页请求失败: {error}")
 
         detail_page = etree.fromstring(response, etree.HTMLParser())
         result, number, title, actor, real_url, cover_url, studio, series = get_detail_info(detail_page, detail_url)

@@ -7,6 +7,7 @@ from parsel import Selector
 
 from ..config.models import Website
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerRequestError
 
 seesaawiki_request_fail_flag = False
 
@@ -147,7 +148,7 @@ class Kin8Crawler(BaseCrawler):
         ctx.debug_info.detail_urls = [detail_url]
         html_content, error = await self.async_client.get_text(detail_url)
         if html_content is None:
-            raise CralwerException(f"网络请求错误: {error}")
+            raise CrawlerRequestError(f"网络请求错误: {error}")
 
         data = await self._parse_detail_page(ctx, Selector(text=html_content), detail_url)
         if not data:

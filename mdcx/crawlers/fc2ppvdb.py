@@ -2,9 +2,12 @@
 from http.cookies import SimpleCookie
 from typing import Any, override
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.manager import manager
 from ..config.models import Website
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerRequestError
 
 
 def get_title(data):  # 获取标题
@@ -141,8 +144,10 @@ async def fetch_article_info(
     try:
         data = response.json()
     except Exception as e:
+        record_parse_error(e)
         return None, describe_xhr_json_error(response, e)
     if not isinstance(data, dict):
+        record_parse_error("接口返回 JSON 结构异常")
         return None, f"接口返回 JSON 结构异常: {type(data).__name__}"
     return data, ""
 
@@ -209,7 +214,7 @@ class Fc2ppvdbCrawler(BaseCrawler):
             use_proxy=use_proxy,
         )
         if html_info is None:
-            raise CralwerException(f"XHR 请求失败: {error}")
+            raise CrawlerRequestError(f"XHR 请求失败: {error}")
 
         title = get_title(html_info)
         if not title:
