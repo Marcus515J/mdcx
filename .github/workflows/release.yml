@@ -37,11 +37,11 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: '3.13'
           activate-environment: true
@@ -72,7 +72,7 @@ jobs:
         run: |
           mkdir -p release-assets
           cp "dist/MDCx.$INSTALLER_EXTENSION" "release-assets/MDCx-$RELEASE_TAG-$INSTALLER_PLATFORM.$INSTALLER_EXTENSION"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.platform }}
           path: release-assets/*
@@ -86,10 +86,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ env.RELEASE_TAG }}
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: release-assets
           merge-multiple: true
@@ -106,7 +106,7 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft --title "MDCx $RELEASE_TAG" --notes-file changelog.md
       - name: Publish validated release and retire the date-numbered release
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const finalize = require('./.github/scripts/finalize-release.cjs');

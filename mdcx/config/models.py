@@ -538,7 +538,6 @@ class Config(BaseModel):
             NfoInclude.RUNTIME,
             NfoInclude.WANTED,
             NfoInclude.SCORE,
-            NfoInclude.CRITICRATING,
             NfoInclude.ACTOR,
             NfoInclude.ACTOR_ALL,
             NfoInclude.DIRECTOR,
@@ -985,6 +984,15 @@ class Config(BaseModel):
             FieldConfig(site_prority=[Website.THEPORNDB, Website.DMM, Website.JAV321], language=Language.ZH_CN),
         )
         d["field_configs"] = field_configs
+
+    @field_validator("nfo_include_new", mode="before")
+    @classmethod
+    def ignore_removed_nfo_option(cls, value):
+        if isinstance(value, str):
+            value = str_to_list(value)
+        if isinstance(value, list):
+            return [item for item in value if item != "criticrating"]
+        return value
 
     @field_validator("timed_interval", "rest_time", mode="before")
     def convert_time_str_to_timedelta(cls, v):

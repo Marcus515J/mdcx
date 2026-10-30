@@ -196,7 +196,7 @@ class ConfigV1:
     publisher_translate: bool = True
 
     # nfo
-    nfo_include_new: str = r"sorttitle,originaltitle,title_cd,outline,plot_,originalplot,release_,releasedate,premiered,country,mpaa,customrating,year,runtime,wanted,score,criticrating,actor,director,series,tag,genre,series_set,studio,maker,publisher,label,poster,cover,trailer,website,"
+    nfo_include_new: str = r"sorttitle,originaltitle,title_cd,outline,plot_,originalplot,release_,releasedate,premiered,country,mpaa,customrating,year,runtime,wanted,score,actor,director,series,tag,genre,series_set,studio,maker,publisher,label,poster,cover,trailer,website,"
     nfo_tagline: str = r"发行日期 release"
     nfo_tag_series: str = r"系列: series"
     nfo_tag_studio: str = r"片商: studio"

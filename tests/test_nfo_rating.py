@@ -35,7 +35,7 @@ def _configure_nfo_writer(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         nfo_module.manager.config,
         "nfo_include_new",
-        [NfoInclude.SCORE, NfoInclude.CRITICRATING, NfoInclude.WANTED],
+        [NfoInclude.SCORE, NfoInclude.WANTED],
     )
     monkeypatch.setattr(nfo_module.manager.config, "nfo_tagline", "release")
     monkeypatch.setattr(nfo_module.manager.config, "actor_no_name", "佚名")
