@@ -8,6 +8,7 @@ from lxml import etree
 from ..config.enums import Language, Website
 from ..config.manager import manager
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerNotFound, CrawlerRequestError
 
 MIRROR_HREF_PATTERN = re.compile(r"(?:^|/)jav[a-z0-9_]+\.html(?:$|[?#])", re.IGNORECASE)
 
@@ -172,9 +173,9 @@ class JavlibraryCrawler(BaseCrawler):
             ctx.debug_info.search_urls = [*(ctx.debug_info.search_urls or []), search_url]
             html_search, error = await self.async_client.get_text(search_url, use_proxy=self.use_proxy)
             if html_search is None:
-                raise CralwerException(f"请求错误: {error}")
+                raise CrawlerRequestError(f"请求错误: {error}")
             if "Cloudflare" in html_search:
-                raise CralwerException("搜索结果: 被 Cloudflare 5 秒盾拦截！")
+                raise CrawlerRequestError("搜索结果: 被 Cloudflare 5 秒盾拦截！")
             html = etree.fromstring(html_search, etree.HTMLParser())
             ids = html.xpath('//div[@id="video_id"]/table/tr/td[@class="text"]/text()')
             if ids:
@@ -186,16 +187,16 @@ class JavlibraryCrawler(BaseCrawler):
             if html_detail is not None and not real_url:
                 real_url = search_url
             if not real_url:
-                raise CralwerException("搜索结果: 未匹配到番号！")
+                raise CrawlerNotFound("搜索结果: 未匹配到番号！")
 
         ctx.debug(f"番号地址[{language.value}]: {real_url}")
         ctx.debug_info.detail_urls = [*(ctx.debug_info.detail_urls or []), real_url]
         if html_detail is None:
             html_info, error = await self.async_client.get_text(real_url, use_proxy=self.use_proxy)
             if html_info is None:
-                raise CralwerException(f"请求错误: {error}")
+                raise CrawlerRequestError(f"请求错误: {error}")
             if "Cloudflare" in html_info:
-                raise CralwerException("搜索结果: 被 Cloudflare 5 秒盾拦截！")
+                raise CrawlerRequestError("搜索结果: 被 Cloudflare 5 秒盾拦截！")
             html_detail = etree.fromstring(html_info, etree.HTMLParser())
         title = get_title(html_detail)
         if not title:

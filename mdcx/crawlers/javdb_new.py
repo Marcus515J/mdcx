@@ -7,10 +7,13 @@ from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from parsel import Selector
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.manager import manager
 from ..config.models import Website
 from ..models.types import CrawlerResult
-from .base import BaseCrawler, CralwerException, CrawlerData, DetailPageParser, extract_all_texts, extract_text
+from .base import BaseCrawler, CrawlerData, DetailPageParser, extract_all_texts, extract_text
+from .base.types import CrawlerRequestError
 
 
 class Parser(DetailPageParser):
@@ -109,7 +112,8 @@ class Parser(DetailPageParser):
         try:
             score_match = re.search(r"(\d{1}\.\d+)(分|,)", result)
             return score_match.group(1) if score_match else ""
-        except Exception:
+        except Exception as parse_error:
+            record_parse_error(parse_error)
             return ""
 
     async def score_max(self, ctx, html: Selector) -> str:
@@ -206,13 +210,15 @@ class JavdbCrawler(BaseCrawler):
     async def _parse_search_page(self, ctx, html: Selector, search_url: str) -> list[str] | None:
         html_text = html._text or ""
         if "The owner of this website has banned your access based on your browser's behaving" in html_text:
-            raise CralwerException(f"由于请求过多，javdb网站暂时禁止了你当前IP的访问！！点击 {search_url} 查看详情！")
+            raise CrawlerRequestError(
+                f"由于请求过多，javdb网站暂时禁止了你当前IP的访问！！点击 {search_url} 查看详情！"
+            )
         if "Due to copyright restrictions" in html_text:
-            raise CralwerException(
+            raise CrawlerRequestError(
                 f"由于版权限制，javdb网站禁止了日本IP的访问！！请更换日本以外代理！点击 {search_url} 查看详情！"
             )
         if "ray-id" in html_text:
-            raise CralwerException("搜索结果: 被 Cloudflare 5 秒盾拦截！请尝试更换cookie！")
+            raise CrawlerRequestError("搜索结果: 被 Cloudflare 5 秒盾拦截！请尝试更换cookie！")
 
         # 获取搜索结果
         res_list = html.xpath("//a[@class='box']")

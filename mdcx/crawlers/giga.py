@@ -5,6 +5,8 @@ from typing import override
 from lxml import etree
 from parsel import Selector
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.models import Website
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
 
@@ -23,7 +25,8 @@ def get_actor(html):
     try:
         actor_list = html.xpath('//span[@class="yaku"]/a/text()')
         result = ",".join(actor_list)
-    except Exception:
+    except Exception as parse_error:
+        record_parse_error(parse_error)
         result = ""
     return result
 

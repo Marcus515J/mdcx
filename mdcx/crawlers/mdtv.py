@@ -10,6 +10,7 @@ from ..config.manager import manager
 from ..config.models import Website
 from ..models.types import CrawlerInput
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerRequestError
 from .guochan import get_actor_list, get_lable_list, get_number_list
 
 
@@ -215,7 +216,7 @@ class MdtvCrawler(BaseCrawler):
             ctx.debug(f'MDTV 搜索地址: {search_url} {{"wd": {number}}}')
             response, error = await self.async_client.post_text(search_url, data={"wd": number})
             if response is None:
-                raise CralwerException(f"网络请求错误: {error}")
+                raise CrawlerRequestError(f"网络请求错误: {error}")
             if "没有找到匹配数据" in response:
                 ctx.debug("MDTV 搜索结果: 没有搜索内容")
                 continue

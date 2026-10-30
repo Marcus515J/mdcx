@@ -8,6 +8,7 @@ from ..config.models import Website
 from ..number import get_file_number, is_uncensored, normalize_uncensored_digit_number
 from ..signals import signal
 from .base import BaseCrawler, CralwerException, CrawlerData, DetailPageParser, extract_all_texts, extract_text
+from .base.types import CrawlerNotFound
 
 
 class Parser(DetailPageParser):
@@ -583,7 +584,7 @@ class MissavCrawler(BaseCrawler):
     @override
     async def _parse_detail_page(self, ctx, html: Selector, detail_url: str) -> CrawlerData | None:
         if self._is_soft_404_page(html):
-            raise CralwerException(f"MissAV 详情页不存在或已下架: {detail_url}")
+            raise CrawlerNotFound(f"MissAV 详情页不存在或已下架: {detail_url}")
 
         canonical_url = extract_text(html, "//meta[@property='og:url']/@content")
         final_detail_url = canonical_url or detail_url

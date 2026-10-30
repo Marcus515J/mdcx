@@ -10,6 +10,7 @@ from ..base.web import get_avsox_domain
 from ..config.models import Website
 from ..models.types import CrawlerInput
 from .base import Context, CralwerException, CrawlerData, GenericBaseCrawler
+from .base.types import CrawlerNotFound
 
 
 def get_actor(html):
@@ -115,7 +116,7 @@ class AvsoxCrawler(GenericBaseCrawler[AvsoxContext]):
         html_search = etree.fromstring(html.get(), etree.HTMLParser())
         detail_url, count = get_real_url(ctx.input.number, html_search)
         if not detail_url:
-            raise CralwerException("搜索结果: 未匹配到番号")
+            raise CrawlerNotFound("搜索结果: 未匹配到番号")
         ctx.search_poster = get_poster(html_search, count)
         return [detail_url]
 

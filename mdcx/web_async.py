@@ -27,6 +27,7 @@ from curl_cffi.requests.session import HttpMethod
 from curl_cffi.requests.utils import not_set
 from PIL import Image
 
+from .models.crawl_status import CrawlStatus, observe_http
 from .network_fingerprint import (
     BrowserFingerprint,
     RequestPurpose,
@@ -45,7 +46,7 @@ _html_queue_lock = threading.Lock()
 
 
 class SiteCircuitOpen(Exception):
-    pass
+    status = CrawlStatus.SKIPPED
 
 
 BAN_RETRY_SLEEP_SECONDS = 15.0
@@ -1738,6 +1739,7 @@ class AsyncWebClient:
         finally:
             lock.release()
 
+    @observe_http(cache=False)
     async def request(
         self,
         method: HttpMethod,
@@ -2120,6 +2122,7 @@ class AsyncWebClient:
         if state is not None and not getattr(state, "is_ban_failure", False) and not re.search(r"\bHTTP 404\b", error):
             state.request_failed = True
 
+    @observe_http(cache=True)
     async def get_text(
         self,
         url: str,
@@ -2160,6 +2163,7 @@ class AsyncWebClient:
 
         return resp.content, ""
 
+    @observe_http(cache=True)
     async def get_json(
         self,
         url: str,
@@ -2180,6 +2184,7 @@ class AsyncWebClient:
         except Exception as e:
             return None, f"JSON解析失败: {str(e)}"
 
+    @observe_http(cache=True)
     async def post_text(
         self,
         url: str,
@@ -2211,6 +2216,7 @@ class AsyncWebClient:
         except Exception as e:
             return None, f"文本解析失败: {str(e)}"
 
+    @observe_http(cache=True)
     async def post_json(
         self,
         url: str,

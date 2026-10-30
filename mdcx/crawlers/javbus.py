@@ -5,10 +5,13 @@ from typing import override
 
 from lxml import etree
 
+from mdcx.models.crawl_status import record_parse_error
+
 from ..config.enums import Website
 from ..config.manager import manager
 from ..core.mosaic import is_plain_uncensored_mosaic
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerNotFound, CrawlerRequestError
 
 
 def get_title(html):
@@ -24,7 +27,8 @@ def getWebNumber(html, number):
 def getActor(html):
     try:
         return str(html.xpath('//div[@class="star-name"]/a/text()')).strip(" ['']").replace("'", "").replace(", ", ",")
-    except Exception:
+    except Exception as parse_error:
+        record_parse_error(parse_error)
         return ""
 
 
@@ -130,9 +134,9 @@ async def get_real_url(client, ctx: Context, number, url_type, javbus_url, heade
     ctx.debug_info.search_urls = [*(ctx.debug_info.search_urls or []), url_search]
     html_search, error = await client.get_text(url_search, headers=headers)
     if html_search is None:
-        raise CralwerException(f"网络请求错误: {error}")
+        raise CrawlerRequestError(f"网络请求错误: {error}")
     if "lostpasswd" in html_search:
-        raise CralwerException("Cookie 无效！请重新填写 Cookie 或更新节点！")
+        raise CrawlerRequestError("Cookie 无效！请重新填写 Cookie 或更新节点！")
 
     html = etree.fromstring(html_search, etree.HTMLParser())
     url_list = html.xpath("//a[@class='movie-box']/@href")
@@ -143,7 +147,7 @@ async def get_real_url(client, ctx: Context, number, url_type, javbus_url, heade
         if each_url.endswith(number_1) or number_2 in each_url:
             ctx.debug(f"番号地址: {each}")
             return each
-    raise CralwerException("搜索结果: 未匹配到番号！")
+    raise CrawlerNotFound("搜索结果: 未匹配到番号！")
 
 
 class JavbusCrawler(BaseCrawler):
@@ -184,16 +188,16 @@ class JavbusCrawler(BaseCrawler):
         htmlcode, error = await self.async_client.get_text(real_url, headers=headers)
         if htmlcode is None:
             if "404" not in str(error) or "." in number:
-                raise CralwerException(f"网络请求错误: {error}")
+                raise CrawlerRequestError(f"网络请求错误: {error}")
             if is_plain_uncensored_mosaic(mosaic):
                 real_url = await get_real_url(self.async_client, ctx, number, "uncensored", self.base_url, headers)
             else:
                 real_url = await get_real_url(self.async_client, ctx, number, "censored", self.base_url, headers)
             htmlcode, error = await self.async_client.get_text(real_url, headers=headers)
             if htmlcode is None:
-                raise CralwerException("未匹配到番号！")
+                raise CrawlerRequestError(f"网络请求错误: {error}")
         if "lostpasswd" in htmlcode:
-            raise CralwerException("Cookie 无效！请重新填写 Cookie 或更新节点！")
+            raise CrawlerRequestError("Cookie 无效！请重新填写 Cookie 或更新节点！")
 
         ctx.debug_info.detail_urls = [real_url]
         html_info = etree.fromstring(htmlcode, etree.HTMLParser())

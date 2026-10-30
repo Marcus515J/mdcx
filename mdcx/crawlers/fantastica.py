@@ -10,6 +10,7 @@ from ..base.web import get_imgsize
 from ..config.models import Website
 from ..models.types import CrawlerInput
 from .base import Context, CralwerException, CrawlerData, GenericBaseCrawler
+from .base.types import CrawlerNotFound
 
 
 def get_web_number(html, number):
@@ -123,7 +124,7 @@ class FantasticaCrawler(GenericBaseCrawler[FantasticaContext]):
         search_page = etree.fromstring(html.get(), etree.HTMLParser())
         detail_url, poster = get_real_url(search_page, ctx.input.number)
         if not detail_url:
-            raise CralwerException("搜索结果: 未匹配到番号")
+            raise CrawlerNotFound("搜索结果: 未匹配到番号")
         ctx.search_poster = poster
         return [detail_url]
 

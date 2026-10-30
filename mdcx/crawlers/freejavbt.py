@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import re
 from typing import override
 
@@ -9,6 +8,7 @@ from lxml.html import soupparser
 from ..base.web import get_dmm_trailer
 from ..config.models import Website
 from .base import BaseCrawler, Context, CralwerException, CrawlerData
+from .base.types import CrawlerNotFound, CrawlerRequestError
 
 
 def get_title(html):
@@ -360,9 +360,9 @@ class FreejavbtCrawler(BaseCrawler):
 
         html_info, error = await self.async_client.get_text(real_url)
         if html_info is None:
-            raise CralwerException(f"请求错误: {error}")
+            raise CrawlerRequestError(f"请求错误: {error}")
         if not html_info:
-            raise CralwerException("未匹配到番号！")
+            raise CrawlerNotFound("未匹配到番号！")
 
         html_detail = parse_detail_html(html_info)
         if html_detail is None:

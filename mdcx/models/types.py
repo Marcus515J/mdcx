@@ -5,6 +5,7 @@ from typing import Literal
 
 from ..config.enums import FixedScrapingType, Language, Website
 from ..gen.field_enums import CrawlerResultFields
+from .crawl_status import SiteReport
 
 
 def score_to_10(score: str, score_max: str) -> str:
@@ -347,6 +348,7 @@ class CrawlerResponse:
 
     debug_info: CrawlerDebugInfo
     data: CrawlerResult | None = None
+    report: SiteReport | None = None
 
 
 @dataclass
