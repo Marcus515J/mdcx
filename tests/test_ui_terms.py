@@ -86,6 +86,9 @@ def test_removed_nfo_checkbox_is_absent_from_generated_window():
         app.processEvents()
         assert window.findChild(QCheckBox, "checkBox_nfo_criticrating") is None
         assert ui.checkBox_nfo_score.text() == "公众评分（score）"
+        assert ui.tabWidget.tabText(ui.tabWidget.indexOf(ui.tab_7)).strip() == "NFO"
+        assert ui.groupBox_81.title() == "写入 NFO 的字段："
+        assert ui.label_390.text() == "评分："
     finally:
         window.close()
 
