@@ -695,6 +695,8 @@ class AsyncWebClient:
         except (SiteCircuitOpen, SiteWallTimeout):
             raise
         except Exception as exc:
+            # A transport timeout at the hard deadline is not a new site failure.
+            _check_site_circuit()
             # Log metadata only: exception strings can contain credentials or proxy addresses.
             with contextlib.suppress(Exception):
                 host = urlsplit(url).hostname or "未知"
@@ -1601,6 +1603,8 @@ class AsyncWebClient:
                         enable_cf_bypass=False,
                         retry_count=1,
                     )
+            except SiteWallTimeout:
+                raise
             except TimeoutError:
                 response, error = None, f"/html 等待超时 ({self._cf_bypass_timeout:g}s)"
             finally:

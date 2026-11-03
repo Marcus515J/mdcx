@@ -20161,14 +20161,14 @@
                       <x>0</x>
                       <y>0</y>
                       <width>760</width>
-                      <height>1500</height>
+                      <height>1560</height>
                     </rect>
                   </property>
                   <widget class="QGroupBox" name="groupBox_10">
                     <property name="geometry">
                       <rect>
                         <x>30</x>
-                        <y>390</y>
+                        <y>450</y>
                         <width>701</width>
                         <height>531</height>
                       </rect>
@@ -20487,7 +20487,7 @@
                         <x>30</x>
                         <y>20</y>
                         <width>701</width>
-                        <height>351</height>
+                        <height>411</height>
                       </rect>
                     </property>
                     <property name="styleSheet">
@@ -20502,7 +20502,7 @@
                           <x>20</x>
                           <y>30</y>
                           <width>661</width>
-                          <height>311</height>
+                          <height>371</height>
                         </rect>
                       </property>
                       <layout class="QGridLayout" name="gridLayout_9">
@@ -21029,7 +21029,7 @@
                     <property name="geometry">
                       <rect>
                         <x>30</x>
-                        <y>1140</y>
+                        <y>1200</y>
                         <width>701</width>
                         <height>301</height>
                       </rect>
@@ -21220,7 +21220,7 @@
                     <property name="geometry">
                       <rect>
                         <x>30</x>
-                        <y>940</y>
+                        <y>1000</y>
                         <width>701</width>
                         <height>181</height>
                       </rect>
