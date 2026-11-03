@@ -149,8 +149,26 @@ class MonoParser(DetailPageParser):
 
     @override
     async def title(self, ctx, html) -> str:
+        # ① 原有两条 XPath
         title = extract_text(html, '//h1[@id="title"]/text()', '//h1[@class="item fn bold"]/text()')
-        return title
+        if title:
+            return title
+
+        # ② 页面第一个 h1 的全部文本（含子节点文本，去首尾空白）
+        h1_nodes = html.xpath("//h1")
+        if h1_nodes:
+            h1_text = "".join(h1_nodes[0].xpath(".//text()").getall()).strip()
+            if h1_text:
+                return h1_text
+
+        # ③ 页面 <title> 文本，去掉末尾从「 - 見放題ch」开始的整段后缀，去首尾空白
+        page_title = "".join(html.xpath("//title//text()").getall()).strip()
+        if page_title:
+            cleaned_title = re.sub(r"\s*[-－]?\s*見放題ch.*$", "", page_title, flags=re.DOTALL).strip()
+            if cleaned_title:
+                return cleaned_title
+
+        return ""
 
     @override
     async def release(self, ctx, html) -> FieldRes[str]:
