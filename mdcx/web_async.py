@@ -22,7 +22,7 @@ import aiofiles.os
 import httpx
 from aiolimiter import AsyncLimiter
 from curl_cffi import AsyncSession, Response
-from curl_cffi.requests.exceptions import ConnectionError, RequestException, Timeout
+from curl_cffi.requests.exceptions import ConnectionError, ProxyError, RequestException, Timeout
 from curl_cffi.requests.session import HttpMethod
 from curl_cffi.requests.utils import not_set
 from PIL import Image
@@ -1973,6 +1973,10 @@ class AsyncWebClient:
                             )
 
                         self._log_dmm_response(resp, url, method=str(method), stream=stream)
+                        # Any HTTP response proves this proxied connection worked,
+                        # including target-site errors and Cloudflare challenges.
+                        if request_proxy and (batch := batch_diagnostics.get()) is not None:
+                            batch.record_service("代理", True)
                         bypass_needed = bool(
                             enable_cf_bypass
                             and self._cf_bypass_enabled
@@ -2121,8 +2125,6 @@ class AsyncWebClient:
                             await self._record_retryable_response_failure(error_msg, pool_key=pool_key)
                     else:
                         self._log(f"✅ {method} {url} 成功")
-                        if request_proxy and (batch := batch_diagnostics.get()) is not None:
-                            batch.record_service("代理", True)
                         if host:
                             self._cf_host_challenge_hits[host] = 0
                         await self._record_transport_success(pool_key=pool_key)
@@ -2141,7 +2143,7 @@ class AsyncWebClient:
                     retry = True  # 连接错误进行重试
                     await self._record_transport_failure(error_msg, pool_key=pool_key)
                 except RequestException as e:
-                    proxy_transport_failure = bool(request_proxy)
+                    proxy_transport_failure = bool(request_proxy) and isinstance(e, ProxyError)
                     error_msg = f"请求异常: {str(e)} {getattr(e, 'code', '')}".strip()
                     retry = True  # 请求异常进行重试
                     await self._record_transport_failure(error_msg, pool_key=pool_key)

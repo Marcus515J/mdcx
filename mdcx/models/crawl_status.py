@@ -1,4 +1,4 @@
-"""Per-call observations; recording these must never affect network retry/circuit decisions."""
+"""Per-call observations and batch service health, independent of site circuit rules."""
 
 import asyncio
 import copy

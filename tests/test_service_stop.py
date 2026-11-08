@@ -192,3 +192,89 @@ def test_window_service_popup_is_nonblocking_and_keeps_taskbar_red(monkeypatch):
     module.MyMAinWindow._clear_taskbar_progress(window)
     window._taskbar_progress.show_error.assert_called_with(123, Flags.scrape_processed, Flags.total_count)
     window._taskbar_progress.clear.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_proxy_http_response_resets_streak_but_non_connection_error_does_not_count(monkeypatch, batch):
+    from curl_cffi.requests.exceptions import InvalidURL, ProxyError
+
+    client = AsyncWebClient(timeout=1, retry=1, proxy="http://proxy.test", cf_bypass_url="")
+    request = AsyncMock(return_value=SimpleNamespace(status_code=404, headers={}))
+    monkeypatch.setattr(client, "_curl_request", request)
+    try:
+        batch.record_service("代理", False)
+        batch.record_service("代理", False)
+        await client.request("GET", "https://missing.test/")
+        assert batch.service_streaks["代理"] == 0
+        request.side_effect = InvalidURL("synthetic malformed URL")
+        await client.request("GET", "https://invalid.test/")
+        assert batch.service_failures["代理"] == 2
+        request.side_effect = ProxyError("synthetic proxy connection failure")
+        await client.request("GET", "https://unreachable.test/")
+        assert batch.service_streaks["代理"] == 1
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_service_stop_persists_remaining_files_and_continue_reuses_them(monkeypatch, tmp_path):
+    from mdcx.config.enums import Switch
+    from mdcx.core import scraper as module
+    from mdcx.models.enums import FileMode
+
+    files = [tmp_path / "unfinished.mp4", tmp_path / "queued.mp4"]
+    monkeypatch.setattr(module.resources, "_userdata_base", tmp_path)
+    monkeypatch.setattr(module.manager.config, "switch_on", [Switch.REMAIN_TASK])
+    monkeypatch.setattr(module.signal, "stop", False)
+    scraper = module.Scraper(object())
+
+    async def stopped_batch(mode, movie_list):
+        Flags.reset()
+        Flags.remain_list = movie_list.copy()
+        Flags.can_save_remain = True
+        for _ in range(3):
+            batch_diagnostics.get().record_service("mirror", False)
+
+    monkeypatch.setattr(scraper, "_run_batch", stopped_batch)
+    try:
+        await scraper._run(FileMode.Default, files)
+        persisted = (tmp_path / "remain.txt").read_text().splitlines()
+        assert set(persisted) == {str(path) for path in files}
+        Flags.remain_list = []
+        box = Mock()
+        box.exec.return_value = module.QMessageBox.StandardButton.Yes
+        factory = Mock(return_value=box)
+        factory.Icon = module.QMessageBox.Icon
+        factory.StandardButton = module.QMessageBox.StandardButton
+        monkeypatch.setattr(module, "QMessageBox", factory)
+        monkeypatch.setattr(module, "parse_media_paths", lambda: [tmp_path])
+        start = Mock()
+        monkeypatch.setattr(module, "start_new_scrape", start)
+        assert module.get_remain_list()
+        from pathlib import Path
+
+        start.assert_called_once_with(FileMode.Default, [Path(path) for path in persisted])
+    finally:
+        Flags.reset()
+
+
+@pytest.mark.asyncio
+async def test_request_waiting_for_connection_pool_does_not_send_after_stop(monkeypatch, batch):
+    client = AsyncWebClient(timeout=1, cf_bypass_url="")
+    session = SimpleNamespace(request=AsyncMock())
+    pool = SimpleNamespace(end_request=AsyncMock())
+
+    async def begin():
+        for _ in range(3):
+            batch.record_service("mirror", False)
+        return session, 1
+
+    pool.begin_request = begin
+    monkeypatch.setattr(client._pool_manager, "get", AsyncMock(return_value=pool))
+    try:
+        with pytest.raises(ServiceStopped):
+            await client._curl_request(url="https://queued.test/")
+        session.request.assert_not_called()
+        pool.end_request.assert_awaited_once_with(1)
+    finally:
+        await client.close()

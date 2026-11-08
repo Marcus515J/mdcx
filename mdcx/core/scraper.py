@@ -22,6 +22,7 @@ from ..base.file import (
     move_torrent,
     newtdisk_creat_symlink,
     pic_some_deal,
+    save_remain_list,
     save_success_list,
 )
 from ..base.image import extrafanart_copy2, extrafanart_extras_copy
@@ -202,6 +203,7 @@ class Scraper:
             await self._run_batch(file_mode, movie_list)
         finally:
             if Flags.service_stop_reason:
+                save_remain_list()
                 signal.reset_buttons_status.emit()
             batch_diagnostics.reset(token)
 
