@@ -31,43 +31,49 @@ from .naming import FIELD_DESCRIPTIONS, NameRenderOptions, NamingTarget, render_
 from .naming.fields import get_version_suffixes
 
 
-def _has_umr_suffix_marker(file_name: str, movie_number: str, *, subtitled: bool = False) -> bool:
+_COMPACT_DEFINITION_REGEX = "|".join(("4K60FPS", "4KS", "8K", "4K"))
+_UMR_BOUNDARY_REGEX = rf"(?=(?:{_COMPACT_DEFINITION_REGEX}|[-_.\s\]\)]|$))"
+
+
+def _has_umr_suffix_marker(file_name: str, movie_number: str) -> bool:
     normalized_name = remove_escape_string(file_name, "-").upper()
     normalized_number = movie_number.upper()
     if normalized_number:
         normalized_name = normalized_name.replace(normalized_number, "-")
 
-    compact_definition_suffixes = (
-        "4K60FPS",
-        "4KS",
-        "8K",
-        "4K",
-    )
-    compact_definition = "|".join(compact_definition_suffixes)
-    marker = "UC" if subtitled else "U(?:C)?"
-    return bool(re.search(rf"(?<![A-Z0-9]){marker}(?=(?:{compact_definition}|[-_.\s\]\)]|$))", normalized_name))
+    return bool(re.search(rf"(?<![A-Z0-9])U(?:C(?:L(?:TX)?)?)?{_UMR_BOUNDARY_REGEX}", normalized_name))
 
 
 def _get_umr_stage(file_name: str, movie_number: str, umr_style: str, cnword_style: str) -> tuple[str, bool, str]:
-    """识别完整阶段标记；仅从分集识别输入中移除它，避免旧 -L 被认作第 12 集。"""
-    bases = "|".join(re.escape(s) for s in (umr_style, "-破解", "-克破") if s)
-    subtitle_styles = "|".join(re.escape(s) for s in (cnword_style, "-C") if s)
+    """识别完整阶段标记；仅从分集识别输入中移除它，避免旧 -L 或 -破解-C 被误判为分集。"""
+    bases = "|".join(re.escape(s) for s in dict.fromkeys(s for s in (umr_style, "-破解", "-克破") if s))
+    subtitle_styles = "|".join(re.escape(s) for s in dict.fromkeys(s for s in (cnword_style, "-C") if s))
     pattern = re.compile(
-        rf"(?:{bases})(?:(?P<sub>{subtitle_styles})(?P<substage>-LTX|L)|(?P<stage>-LTX|-L))"
+        rf"(?:{bases})(?:(?P<sub>{subtitle_styles})(?P<substage>-?LTX|L)?|(?P<stage>-LTX|-L))"
         r"(?=[-_.\s\]\)]|$)",
         re.IGNORECASE,
     )
     if match := pattern.search(file_name):
-        stage = (match.group("substage") or match.group("stage")).upper().lstrip("-")
+        raw_stage = match.group("substage") or match.group("stage") or ""
+        stage = raw_stage.upper().lstrip("-")
         return stage, bool(match.group("sub")), pattern.sub("", file_name)
+
+    normalized_name = remove_escape_string(file_name, "-").upper()
+    normalized_number = movie_number.upper()
+    if normalized_number:
+        normalized_name = normalized_name.replace(normalized_number, "-")
+    if re.search(rf"(?<![A-Z0-9])UCLTX{_UMR_BOUNDARY_REGEX}", normalized_name):
+        return "LTX", True, file_name
+    if re.search(rf"(?<![A-Z0-9])UCL{_UMR_BOUNDARY_REGEX}", normalized_name):
+        return "L", True, file_name
 
     suffix_name = file_name.upper()
     if movie_number:
         suffix_name = suffix_name.replace(movie_number.upper(), "-")
     if re.search(r"(?<![A-Z0-9])LTX(?=[-_.\s\]\)]|$)", suffix_name):
         return "LTX", False, file_name
-    if _has_umr_suffix_marker(file_name, movie_number, subtitled=True):
-        return "LTX", True, file_name
+    if re.search(rf"(?<![A-Z0-9])UC{_UMR_BOUNDARY_REGEX}", normalized_name):
+        return "", True, file_name
     return "", False, file_name
 
 

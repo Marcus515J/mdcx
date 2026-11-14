@@ -26,7 +26,7 @@ from ..base.file import (
     save_success_list,
 )
 from ..base.image import extrafanart_copy2, extrafanart_extras_copy
-from ..config.enums import DownloadableFile, EmbyAction, FixedScrapingType, KeepableFile, ReadMode, Switch
+from ..config.enums import DownloadableFile, EmbyAction, FixedScrapingType, KeepableFile, ReadMode, Switch, TagInclude
 from ..config.extend import get_movie_path_setting, parse_media_paths
 from ..config.manager import manager
 from ..config.resources import resources
@@ -47,6 +47,7 @@ from .file import creat_folder, deal_old_files, get_file_info_v2, get_output_nam
 from .file_crawler import FileScraper, classify_existing_scrape_result, classify_scrape_task
 from .image import add_mark
 from .media_resource import MediaResourceContext
+from .mosaic import UMR_STAGE_TAGS, get_umr_stage_tag, has_umr_mark
 from .nfo import get_nfo_data, write_nfo
 from .scrape_quality import (
     QualityDeferred,
@@ -829,9 +830,17 @@ class Scraper:
                     "MPEG4",
                     "VP8",
                     "VP9",
+                    *UMR_STAGE_TAGS.values(),
                 )
             ]
             tags.append(file_info.mosaic)
+            if (
+                TagInclude.MOSAIC in manager.config.nfo_tag_include
+                and has_umr_mark(file_info.mosaic)
+                and (stage_tag := get_umr_stage_tag(file_info.umr_stage))
+                and stage_tag not in tags
+            ):
+                tags.append(stage_tag)
             if file_info.has_sub:
                 tags.append("中文字幕")
             res.tag = ",".join(tags)
@@ -913,7 +922,7 @@ class Scraper:
             await translate_title_outline(res, file_info.cd_part, movie_number)  # 翻译json_data（标题/介绍）
             deal_some_field(res)  # 再处理一遍字段，翻译后可能出现要去除的内容
             await translate_actor(res)  # 映射输出演员名/信息
-            translate_info(res, file_info.has_sub)  # 映射输出标签等信息
+            translate_info(res, file_info.has_sub, file_info.umr_stage)  # 映射输出标签等信息
             replace_word(res)
 
         # 更新视频分辨率

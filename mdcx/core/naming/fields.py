@@ -73,7 +73,7 @@ def get_version_suffixes(
     """阶段只参与命名；字幕与分类字段保持原值，沿用后缀排序和显示开关。"""
     moword = destroyed + leak + wuma + youma
     if destroyed and umr_stage:
-        stage_suffix = "L" if umr_stage == "L" and cnword else f"-{umr_stage}"
+        stage_suffix = umr_stage if cnword else f"-{umr_stage}"
         if cnword:
             cnword += stage_suffix
         else:
