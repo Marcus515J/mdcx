@@ -61,11 +61,17 @@ def result_for(info):
     ("suffix", "expected", "subtitle", "cd", "stage"),
     [
         ("-LTX", "-破解-LTX", False, "", "LTX"),
+        ("-ULTX", "-破解-LTX", False, "", "LTX"),
         ("-U-LTX", "-破解-LTX", False, "", "LTX"),
+        ("-UL", "-破解-L", False, "", "L"),
+        ("-U-L", "-破解-L", False, "", "L"),
         ("-UC", "-破解-C", True, "", ""),
         ("-UCL", "-破解-CL", True, "", "L"),
+        ("-UC-L", "-破解-CL", True, "", "L"),
         ("-UCLTX", "-破解-CLTX", True, "", "LTX"),
+        ("-UC-LTX", "-破解-CLTX", True, "", "LTX"),
         ("-U", "-破解", False, "", ""),
+        ("-破解", "-破解", False, "", ""),
         ("-破解-L", "-破解-L", False, "", "L"),
         ("-破解-C", "-破解-C", True, "", ""),
         ("-破解-CL", "-破解-CL", True, "", "L"),
@@ -83,6 +89,8 @@ def result_for(info):
         ("-破解-C-LTX-CD2", "-破解-CLTX", True, "-CD2", "LTX"),
         ("-破解-CLTX-CD1", "-破解-CLTX", True, "-CD1", "LTX"),
         ("-ltx", "-破解-LTX", False, "", "LTX"),
+        ("-ul", "-破解-L", False, "", "L"),
+        ("-ultx", "-破解-LTX", False, "", "LTX"),
         ("-ucl", "-破解-CL", True, "", "L"),
         ("-ucltx", "-破解-CLTX", True, "", "LTX"),
         ("-uc4k", "-破解-C", True, "", ""),
@@ -117,30 +125,44 @@ async def test_stage_output_and_rescrape_are_idempotent(tmp_path, suffix, expect
 @pytest.mark.parametrize(
     ("suffix", "expected_cd", "sub"),
     [
-        ("-L", "-CD12", False),
-        ("-C", "-CD3", False),
+        ("-C", "", True),
+        ("-L", "", False),
+        ("-A", "", False),
+        ("-B", "", False),
         ("-CD1", "-CD1", False),
+        ("-PART2", "-CD2", False),
+        ("-1", "-CD1", False),
+        ("-2-abc", "-CD2", False),
         ("-U-CD1", "-CD1", False),
     ],
 )
-async def test_unrelated_cd_rules_are_unchanged(tmp_path, suffix, expected_cd, sub):
+async def test_letter_suffix_not_cd_and_numeric_cd_unchanged(tmp_path, suffix, expected_cd, sub):
     info = await get_file_info_v2(tmp_path / f"TEST-123{suffix}.mp4", copy_sub=False)
+    assert info.number == "TEST-123"
     assert info.cd_part == expected_cd
     assert info.has_sub is sub
     assert info.umr_stage == ""
+    if suffix in ("-C", "-L", "-A", "-B"):
+        assert info.destroyed == ""
+        output = get_output_name(info, result_for(info), tmp_path, ".mp4")
+        again = await get_file_info_v2(output[1], copy_sub=False)
+        assert again.cd_part == ""
+        assert again.has_sub is sub
 
 
-@pytest.mark.asyncio
-async def test_plain_c_subtitle_rule_and_letter_setting_remain_configurable(tmp_path, monkeypatch):
-    monkeypatch.setattr(manager.config, "cd_char", [CDChar.LETTER])
-    info = await get_file_info_v2(tmp_path / "TEST-123-C.mp4", copy_sub=False)
-    assert info.cd_part == ""
-    assert info.has_sub
-    assert info.file_show_name == "TEST-123-C"
-    monkeypatch.setattr(manager.config, "cd_char", [])
-    info = await get_file_info_v2(tmp_path / "TEST-123-L.mp4", copy_sub=False)
-    assert info.cd_part == ""
-    assert info.destroyed == info.umr_stage == ""
+def test_letter_cd_options_disabled_in_config_and_ui():
+    from pathlib import Path
+
+    from mdcx.config.models import Config
+
+    default_cd_char = Config().cd_char
+    assert CDChar.LETTER not in default_cd_char
+    assert CDChar.ENDC not in default_cd_char
+
+    root = ET.parse(Path("mdcx/views/MDCx.ui")).getroot()
+    for name in ("checkBox_cd_part_a", "checkBox_cd_part_c"):
+        enabled = root.find(f'.//widget[@name="{name}"]/property[@name="enabled"]/bool')
+        assert enabled is not None and enabled.text == "false"
 
 
 @pytest.mark.asyncio
@@ -276,13 +298,24 @@ def test_acceptance_ui_terms_match_source():
     ("suffix", "expected_tags"),
     [
         ("-UCLTX", ["中文字幕", "无码破解", "LTX破解"]),
+        ("-UC-LTX", ["中文字幕", "无码破解", "LTX破解"]),
         ("-UCL", ["中文字幕", "无码破解", "L破解"]),
+        ("-UC-L", ["中文字幕", "无码破解", "L破解"]),
         ("-UC", ["中文字幕", "无码破解"]),
         ("-UC4K", ["中文字幕", "无码破解"]),
+        ("-ULTX", ["无码破解", "LTX破解"]),
+        ("-U-LTX", ["无码破解", "LTX破解"]),
+        ("-UL", ["无码破解", "L破解"]),
+        ("-U-L", ["无码破解", "L破解"]),
+        ("-U", ["无码破解"]),
+        ("-LTX", ["无码破解", "LTX破解"]),
         ("-破解-C-LTX", ["中文字幕", "无码破解", "LTX破解"]),
+        ("-破解-CLTX", ["中文字幕", "无码破解", "LTX破解"]),
+        ("-破解-CL", ["中文字幕", "无码破解", "L破解"]),
+        ("-破解-C", ["中文字幕", "无码破解"]),
         ("-破解-LTX", ["无码破解", "LTX破解"]),
         ("-破解-L", ["无码破解", "L破解"]),
-        ("-破解-C", ["中文字幕", "无码破解"]),
+        ("-破解", ["无码破解"]),
     ],
 )
 async def test_nfo_stage_tags_written_and_rescrape_deduplicated(tmp_path, monkeypatch, suffix, expected_tags):

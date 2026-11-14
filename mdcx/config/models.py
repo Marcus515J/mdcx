@@ -604,8 +604,6 @@ class Config(BaseModel):
     cd_name: int = Field(default=0, title="CD名称")
     cd_char: list[CDChar] = Field(
         default_factory=lambda: [
-            CDChar.LETTER,
-            CDChar.ENDC,
             CDChar.DIGITAL,
             CDChar.MIDDLE_NUMBER,
             CDChar.UNDERLINE,

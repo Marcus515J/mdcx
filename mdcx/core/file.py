@@ -41,7 +41,7 @@ def _has_umr_suffix_marker(file_name: str, movie_number: str) -> bool:
     if normalized_number:
         normalized_name = normalized_name.replace(normalized_number, "-")
 
-    return bool(re.search(rf"(?<![A-Z0-9])U(?:C(?:L(?:TX)?)?)?{_UMR_BOUNDARY_REGEX}", normalized_name))
+    return bool(re.search(rf"(?<![A-Z0-9])U(?:C?L(?:TX)?|C)?{_UMR_BOUNDARY_REGEX}", normalized_name))
 
 
 def _get_umr_stage(file_name: str, movie_number: str, umr_style: str, cnword_style: str) -> tuple[str, bool, str]:
@@ -62,10 +62,14 @@ def _get_umr_stage(file_name: str, movie_number: str, umr_style: str, cnword_sty
     normalized_number = movie_number.upper()
     if normalized_number:
         normalized_name = normalized_name.replace(normalized_number, "-")
-    if re.search(rf"(?<![A-Z0-9])UCLTX{_UMR_BOUNDARY_REGEX}", normalized_name):
+    if re.search(rf"(?<![A-Z0-9])UC-?LTX{_UMR_BOUNDARY_REGEX}", normalized_name):
         return "LTX", True, file_name
-    if re.search(rf"(?<![A-Z0-9])UCL{_UMR_BOUNDARY_REGEX}", normalized_name):
+    if re.search(rf"(?<![A-Z0-9])UC-?L{_UMR_BOUNDARY_REGEX}", normalized_name):
         return "L", True, file_name
+    if re.search(rf"(?<![A-Z0-9])U-?LTX{_UMR_BOUNDARY_REGEX}", normalized_name):
+        return "LTX", False, file_name
+    if re.search(rf"(?<![A-Z0-9])U-?L{_UMR_BOUNDARY_REGEX}", normalized_name):
+        return "L", False, file_name
 
     suffix_name = file_name.upper()
     if movie_number:
@@ -463,45 +467,12 @@ async def get_file_info_v2(file_path: Path, copy_sub: bool = True) -> FileInfo:
         temp_cd_filename = re.sub(temp_cd, "", file_name_cd)
         cd_path_1 = re.findall(r"[-_ .]{1}(cd|part|hd)([0-9]{1,2})", temp_cd_filename)
         cd_path_2 = re.findall(r"-([0-9]{1,2})\.?$", temp_cd_filename)
-        cd_path_3 = re.findall(r"(-|\d{2,}|\.)([a-o]{1})\.?$", temp_cd_filename)
         cd_path_4 = re.findall(r"-([0-9]{1})[^a-z0-9]", temp_cd_filename)
         if cd_path_1 and int(cd_path_1[0][1]) > 0:
             cd_part = cd_path_1[0][1]
         elif cd_path_2:
             if len(cd_path_2[0]) == 1 or CDChar.DIGITAL in cd_char:
                 cd_part = str(int(cd_path_2[0]))
-        elif cd_path_3 and CDChar.LETTER in cd_char:
-            letter_list = [
-                "",
-                "a",
-                "b",
-                "c",
-                "d",
-                "e",
-                "f",
-                "g",
-                "h",
-                "i",
-                "j",
-                "k",
-                "l",
-                "m",
-                "n",
-                "o",
-                "p",
-                "q",
-                "r",
-                "s",
-                "t",
-                "u",
-                "v",
-                "w",
-                "x",
-                "y",
-                "z",
-            ]
-            if cd_path_3[0][1] != "c" or CDChar.ENDC in cd_char:
-                cd_part = str(letter_list.index(cd_path_3[0][1]))
         elif cd_path_4 and CDChar.MIDDLE_NUMBER in cd_char:
             cd_part = str(int(cd_path_4[0]))
 
@@ -623,8 +594,6 @@ async def get_file_info_v2(file_path: Path, copy_sub: bool = True) -> FileInfo:
         if not has_sub:
             cnword_list.append("-uc.")
             file_name_temp = file_name_temp.upper().replace("CD", "").replace("CARIB", "")  # 去掉cd/carib，避免-c误判
-            if CDChar.LETTER in cd_char and CDChar.ENDC in cd_char:
-                file_name_temp = re.sub(r"(-|\d{2,}|\.)C\.$", ".", file_name_temp)
 
             for each in cnword_list:
                 if each.upper() in file_name_temp and "無字幕" not in file_path_str and "无字幕" not in file_path_str:

@@ -2952,12 +2952,12 @@ class MyMAinWindow(QMainWindow):
         self.Ui.pushButton_init_config.setEnabled(True)
         signal_qt.show_scrape_info(f"💡 配置已重置！{get_current_time()}")
 
-    # 设置-命名-分集-字母
+    # 设置-命名-分集-字母（已停用，保持禁用）
     def checkBox_cd_part_a_clicked(self):
-        if self.Ui.checkBox_cd_part_a.isChecked():
-            self.Ui.checkBox_cd_part_c.setEnabled(True)
-        else:
-            self.Ui.checkBox_cd_part_c.setEnabled(False)
+        self.Ui.checkBox_cd_part_a.setChecked(False)
+        self.Ui.checkBox_cd_part_a.setEnabled(False)
+        self.Ui.checkBox_cd_part_c.setChecked(False)
+        self.Ui.checkBox_cd_part_c.setEnabled(False)
 
     # 设置-刮削目录-同意清理(我已知晓/我已同意)
     def checkBox_i_agree_clean_clicked(self):

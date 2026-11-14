@@ -452,8 +452,6 @@ def save_config(self: "MyMAinWindow"):
     )
 
     manager.config.cd_char = get_checkboxes(
-        (self.Ui.checkBox_cd_part_a, CDChar.LETTER),
-        (self.Ui.checkBox_cd_part_c, CDChar.ENDC),
         (self.Ui.checkBox_cd_part_01, CDChar.DIGITAL),
         (self.Ui.checkBox_cd_part_1_xxx, CDChar.MIDDLE_NUMBER),
         (self.Ui.checkBox_cd_part_underline, CDChar.UNDERLINE),
