@@ -10708,6 +10708,9 @@
                       </property>
                     </widget>
                     <widget class="QCheckBox" name="checkBox_cd_part_a">
+                      <property name="enabled">
+                        <bool>false</bool>
+                      </property>
                       <property name="geometry">
                         <rect>
                           <x>160</x>
@@ -10942,6 +10945,9 @@
                       </property>
                     </widget>
                     <widget class="QCheckBox" name="checkBox_cd_part_c">
+                      <property name="enabled">
+                        <bool>false</bool>
+                      </property>
                       <property name="geometry">
                         <rect>
                           <x>200</x>

@@ -648,10 +648,6 @@ def load_config(self: "MyMAinWindow"):
 
         set_checkboxes(
             cd_char,
-            # 允许分集识别字母
-            (self.Ui.checkBox_cd_part_a, CDChar.LETTER),
-            # 允许分集识别字母（重复）
-            (self.Ui.checkBox_cd_part_c, CDChar.LETTER),
             # 允许分集识别数字
             (self.Ui.checkBox_cd_part_01, CDChar.DIGITAL),
             (self.Ui.checkBox_cd_part_1_xxx, CDChar.MIDDLE_NUMBER),
@@ -660,8 +656,11 @@ def load_config(self: "MyMAinWindow"):
             (self.Ui.checkBox_cd_part_space, CDChar.SPACE),
             (self.Ui.checkBox_cd_part_point, CDChar.POINT),
         )
-        # 特殊处理 endc
-        self.Ui.checkBox_cd_part_c.setChecked(CDChar.ENDC in cd_char)
+        # 字母分集规则已停用：界面保留控件但固定取消勾选并禁用
+        self.Ui.checkBox_cd_part_a.setChecked(False)
+        self.Ui.checkBox_cd_part_a.setEnabled(False)
+        self.Ui.checkBox_cd_part_c.setChecked(False)
+        self.Ui.checkBox_cd_part_c.setEnabled(False)
         # endregion
 
         # 图片命名是否包含视频名

@@ -14,6 +14,10 @@ UMR_MOSAIC = "无码破解"
 LEAK_MOSAIC = "流出"
 UNCENSORED_LEAK_MOSAIC = "无码流出"
 GUOCHAN_MOSAIC = "国产"
+UMR_STAGE_TAGS: dict[str, str] = {
+    "LTX": "LTX破解",
+    "L": "L破解",
+}
 
 _CENSORED_VALUES = {"有码", "有碼"}
 _UNCENSORED_VALUES = {"无码", "無碼", "無修正"}
@@ -65,6 +69,10 @@ def has_uncensored_mark(value: object) -> bool:
 
 def has_umr_mark(value: object) -> bool:
     return normalize_mosaic(value) == UMR_MOSAIC
+
+
+def get_umr_stage_tag(umr_stage: str) -> str:
+    return UMR_STAGE_TAGS.get(str(umr_stage or "").upper(), "")
 
 
 def has_leak_mark(value: object) -> bool:

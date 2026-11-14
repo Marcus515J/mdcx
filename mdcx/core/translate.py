@@ -20,7 +20,7 @@ from ..number import get_number_letters
 from ..signals import signal
 from ..utils import clean_list, get_used_time
 from ..utils.language import is_japanese, is_probably_english_for_translation
-from .mosaic import normalize_mosaic
+from .mosaic import UMR_STAGE_TAGS, get_umr_stage_tag, has_umr_mark, normalize_mosaic
 
 AVWIKI_SCRAPING_TYPES = {
     FixedScrapingType.YOUMA,
@@ -43,7 +43,7 @@ def _should_query_avwiki_actor(res: CrawlersResult) -> bool:
     return res.scraping_type in AVWIKI_SCRAPING_TYPES
 
 
-def translate_info(json_data: CrawlersResult, has_sub: bool):
+def translate_info(json_data: CrawlersResult, has_sub: bool, umr_stage: str = ""):
     xml_info = resources.info_mapping_data
     if xml_info is not None and len(xml_info) == 0:
         return json_data
@@ -70,6 +70,7 @@ def translate_info(json_data: CrawlersResult, has_sub: bool):
         "无码流出",
         "無碼破解",
         "无码破解",
+        *UMR_STAGE_TAGS.values(),
         "無碼片",
         "无码片",
         "有碼片",
@@ -128,6 +129,8 @@ def translate_info(json_data: CrawlersResult, has_sub: bool):
         tag += ",中文字幕"
     if mosaic and TagInclude.MOSAIC in tag_include:
         tag += "," + mosaic
+        if has_umr_mark(mosaic) and (stage_tag := get_umr_stage_tag(umr_stage)):
+            tag += "," + stage_tag
 
     # 添加系列、制作、发行信息到tag中
     series = json_data.series
