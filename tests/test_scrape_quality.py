@@ -253,7 +253,7 @@ async def test_quality_gate_precedes_every_output_and_leaves_file(monkeypatch, t
     [
         (FixedScrapingType.YOUMA, 4),
         (FixedScrapingType.WUMA, 2),
-        (FixedScrapingType.SUREN, 1),
+        (FixedScrapingType.SUREN, 2),
         (FixedScrapingType.FC2, 1),
     ],
 )
@@ -262,6 +262,8 @@ def test_required_fields_use_raw_real_actor_names(kind, required):
     result = CrawlerResult.empty()
     result.actors = [" "]
     assert "actors" in missing_required(result, FixedScrapingType.WUMA)
+    result.actors = ["sampleさん"]
+    assert "actors" in missing_required(result, FixedScrapingType.SUREN)
 
 
 @pytest.fixture
@@ -686,11 +688,17 @@ async def test_batch_normal_absence_uses_merged_required_fields(gate_env, monkey
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("action,reason", [("actor_empty", "演员解析为空"), ("actor_placeholder", "演员全是占位名")])
-@pytest.mark.parametrize("kind", [FixedScrapingType.YOUMA, FixedScrapingType.WUMA])
+@pytest.mark.parametrize("kind", [FixedScrapingType.YOUMA, FixedScrapingType.WUMA, FixedScrapingType.SUREN])
 async def test_invalid_actors_defer_then_hold_before_any_output(gate_env, monkeypatch, tmp_path, action, reason, kind):
+    from unittest.mock import AsyncMock
+
+    from mdcx.core import translate as translate_module
+
     module, info = gate_env
     monkeypatch.setattr(module.manager.config, "fixed_scraping_type", kind)
     monkeypatch.setattr(module.manager.config, "website_wuma", [Website.DMM, Website.JAVDB])
+    monkeypatch.setattr(module.manager.config, "website_suren", [Website.DMM, Website.JAVDB])
+    monkeypatch.setattr(translate_module, "get_actorname", AsyncMock(return_value=(False, "No Result!")))
     source, records = provider([action, action], [action, action])
     info.file_path.write_bytes(b"original")
 
@@ -714,7 +722,8 @@ async def test_invalid_actors_defer_then_hold_before_any_output(gate_env, monkey
         await scraper._process_one_file(info, FileMode.Default)
     assert missing_required(scraper._quality_pending[info.file_path].raw_result, kind) == ["actors"]
     scraper._quality_retrying = True
-    with pytest.raises(QualityHeld, match=reason):
+    expected_reason = "没有合格的纯演员名" if kind == FixedScrapingType.SUREN else reason
+    with pytest.raises(QualityHeld, match=expected_reason):
         await scraper._process_one_file(info, FileMode.Default)
     assert len(records) == 4  # Empty source responses must be parsed again, not reused as successes.
     assert list(tmp_path.iterdir()) == [info.file_path]
@@ -722,7 +731,7 @@ async def test_invalid_actors_defer_then_hold_before_any_output(gate_env, monkey
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("kind", [FixedScrapingType.SUREN, FixedScrapingType.FC2])
+@pytest.mark.parametrize("kind", [FixedScrapingType.FC2])
 async def test_optional_actors_do_not_create_parse_error(monkeypatch, kind):
     config = configure(monkeypatch)
     config.fixed_scraping_type = kind

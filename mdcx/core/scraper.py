@@ -31,6 +31,7 @@ from ..config.extend import get_movie_path_setting, parse_media_paths
 from ..config.manager import manager
 from ..config.resources import resources
 from ..crawler import CrawlerProvider
+from ..gen.field_enums import CrawlerResultFields
 from ..models.crawl_status import BatchDiagnostics, batch_diagnostics, check_service_stop
 from ..models.enums import FileMode
 from ..models.flags import FileDoneDict, Flags
@@ -57,7 +58,14 @@ from .scrape_quality import (
     recovery_summary,
     retryable_sites,
 )
-from .translate import translate_actor, translate_info, translate_title_outline
+from .translate import (
+    AvwikiActorQueryResult,
+    _should_query_avwiki_actor,
+    query_avwiki_actor,
+    translate_actor,
+    translate_info,
+    translate_title_outline,
+)
 from .utils import (
     add_definition_tag,
     deal_some_field,
@@ -100,6 +108,50 @@ def _should_process_metadata(
     return not is_nfo_existed or update_nfo
 
 
+def _apply_suren_avwiki_actors(
+    res: CrawlersResult,
+    raw_result: CrawlersResult | None,
+    pure_actors: list[str],
+    scraper: FileScraper,
+) -> None:
+    """Apply validated Av-wiki actors onto scraped results before the suren quality gate."""
+    for target in (res, raw_result):
+        if target is None:
+            continue
+        target.actors = list(pure_actors)
+        target.all_actors = list(pure_actors)
+        target.actor_amazon = list(dict.fromkeys([*target.actor_amazon, *pure_actors]))
+        target.field_sources[CrawlerResultFields.ACTORS] = "av-wiki"
+        target.field_sources[CrawlerResultFields.ALL_ACTORS] = "av-wiki"
+    skipped = list(getattr(scraper, "suren_skipped_actor_sites", []) or [])
+    if skipped:
+        res.field_log += (
+            f"\n    🔄 actors: 跳过非纯演员名站点 ({' -> '.join(skipped)})，改取 Av-wiki\n     ↳{pure_actors}"
+        )
+    else:
+        res.field_log += f"\n    🔄 actors: 已抓站点均无演员值，改取 Av-wiki\n     ↳{pure_actors}"
+
+
+def _suren_actor_diagnostic_note(
+    scraper: FileScraper,
+    avwiki_result: AvwikiActorQueryResult | None,
+) -> str:
+    skipped = list(getattr(scraper, "suren_skipped_actor_sites", []) or [])
+    if avwiki_result is not None and avwiki_result.rejected_impure and "av-wiki" not in skipped:
+        skipped.append("av-wiki")
+    if skipped:
+        return f"没有合格的纯演员名（已跳过: {' -> '.join(skipped)}）"
+    return "没有合格的纯演员名（已抓站点均无演员值）"
+
+
+def _log_suren_avwiki_miss(avwiki_result: AvwikiActorQueryResult) -> None:
+    if avwiki_result.rejected_impure:
+        LogBuffer.log().write(f"\n ⚪ Av-wiki: 没有合格的纯演员名 ({avwiki_result.elapsed}s)")
+    else:
+        marker = "⚪" if avwiki_result.value == "No Result!" else "🔴"
+        LogBuffer.log().write(f"\n {marker} Av-wiki failed! {avwiki_result.value} ({avwiki_result.elapsed}s)")
+
+
 class Scraper:
     def __init__(self, crawler_provider: "CrawlerProviderProtocol"):
         self.crawler_provider = crawler_provider
@@ -112,6 +164,7 @@ class Scraper:
         self._quality_summaries: list[str] = []
         self._quality_completed_attempts = 0
         self._retry_display_done = 0
+        self._suren_avwiki_cache: dict[str, AvwikiActorQueryResult] = {}
 
     def _display_count(self, total: int) -> str:
         count = f"{Flags.scrape_processed}/{total}"
@@ -226,6 +279,7 @@ class Scraper:
         self._quality_retrying = False
         self._quality_completed_attempts = 0
         self._retry_display_done = 0
+        self._suren_avwiki_cache.clear()
         if movie_list is None:
             movie_list = []
         Flags.scrape_start_time = time.time()  # 开始刮削时间
@@ -510,11 +564,11 @@ class Scraper:
                         Flags.json_get_status[status_number] = True
             elif origin_number in Flags.json_get_status and Flags.json_get_status[origin_number] is None:
                 Flags.json_get_status[origin_number] = False
-        except QualityDeferred:
+        except QualityDeferred as deferred:
             quality_deferred = True
             if origin_number in Flags.json_get_status:
                 Flags.json_get_status[origin_number] = False
-            LogBuffer.log().write("\n 🔁 请求或解析出错，暂不入库，移至批末质量复查")
+            LogBuffer.log().write(f"\n {str(deferred) or '🔁 请求或解析出错，暂不入库，移至批末质量复查'}")
         except QualityHeld as error:
             quality_held = True
             if origin_number in Flags.json_get_status:
@@ -717,6 +771,7 @@ class Scraper:
         is_nfo_existed = False
         res = CrawlersResult.empty()  # todo 保证所有路径上均有 res 值
         file_classification = None
+        avwiki_result: AvwikiActorQueryResult | None = None
         # 读取模式
         file_can_download = True
         if manager.config.main_mode == 4:
@@ -860,7 +915,14 @@ class Scraper:
                             self._quality_resolved[movie_number]
                         )
                     else:
-                        retry_sites = await retryable_sites(scraper)
+                        suren_was_missing_actors = (
+                            file_classification.scraping_type == FixedScrapingType.SUREN
+                            and scraper.raw_result is not None
+                            and "actors" in missing_required(scraper.raw_result, file_classification.scraping_type)
+                        )
+                        retry_sites = await retryable_sites(
+                            scraper, include_suren_missing_actors=suren_was_missing_actors
+                        )
                         retried = bool(retry_sites)
                         if retried:
                             await scraper.reset_wall_timeouts(crawl_task, retry_sites)
@@ -875,28 +937,82 @@ class Scraper:
             else:
                 res = await scraper.run(crawl_task, file_mode)
             self._check_stop(file_info.file_show_name)
+            has_error = any(report.has_error for report in getattr(scraper, "reports", []))
+            suren_missing_actors = (
+                file_classification.scraping_type == FixedScrapingType.SUREN
+                and res is not None
+                and scraper.raw_result is not None
+                and "actors" in missing_required(scraper.raw_result, file_classification.scraping_type)
+            )
+            avwiki_key = movie_number or str(file_path)
+            if (
+                suren_missing_actors
+                and _should_process_metadata(pre_data, is_nfo_existed=is_nfo_existed, update_nfo=update_nfo)
+                and manager.config.actor_realname
+                and _should_query_avwiki_actor(res)
+            ):
+                if avwiki_key in self._suren_avwiki_cache:
+                    avwiki_result = self._suren_avwiki_cache[avwiki_key]
+                else:
+                    avwiki_result = await query_avwiki_actor(res)
+                    self._suren_avwiki_cache[avwiki_key] = avwiki_result
+                if avwiki_result.ok and avwiki_result.pure_actors:
+                    _apply_suren_avwiki_actors(res, scraper.raw_result, avwiki_result.pure_actors, scraper)
+                    suren_missing_actors = False
+                elif not self._quality_retrying:
+                    _log_suren_avwiki_miss(avwiki_result)
+            elif (
+                file_classification.scraping_type == FixedScrapingType.SUREN and avwiki_key in self._suren_avwiki_cache
+            ):
+                avwiki_result = self._suren_avwiki_cache[avwiki_key]
             if (batch := batch_diagnostics.get()) is not None:
+                missing_for_batch = set(missing_required(scraper.raw_result, file_classification.scraping_type))
+                if file_classification.scraping_type == FixedScrapingType.SUREN and getattr(
+                    scraper, "suren_skipped_actor_sites", None
+                ):
+                    missing_for_batch.discard("actors")
                 batch.record_movie(
                     movie_number or str(file_path),
-                    bool(missing_required(scraper.raw_result, file_classification.scraping_type)),
+                    bool(missing_for_batch),
                     scraper.reports,
                 )
-            has_error = any(report.has_error for report in getattr(scraper, "reports", []))
-            if (has_error and bool(movie_number or file_info.appoint_url)) or file_path in self._quality_pending:
+            if (
+                (has_error or suren_missing_actors) and bool(movie_number or file_info.appoint_url)
+            ) or file_path in self._quality_pending:
                 before, original_reports = self._quality_first.setdefault(
                     file_path, (copy_module.deepcopy(scraper.raw_result), list(scraper.reports))
                 )
-                if not self._quality_retrying and await retryable_sites(scraper):
+                if not self._quality_retrying and await retryable_sites(
+                    scraper, include_suren_missing_actors=suren_missing_actors
+                ):
                     self._quality_pending[file_path] = scraper
                     self._quality_by_number[movie_number] = scraper
+                    if not has_error and suren_missing_actors:
+                        raise QualityDeferred("🔁 没有合格的纯演员名，暂不入库，移至批末质量复查")
                     raise QualityDeferred()
                 missing = missing_required(scraper.raw_result, file_classification.scraping_type)
                 reports = [*original_reports, *scraper.reports]
+                extra_note = (
+                    _suren_actor_diagnostic_note(scraper, avwiki_result)
+                    if file_classification.scraping_type == FixedScrapingType.SUREN and "actors" in missing
+                    else ""
+                )
                 self._quality_summaries.append(
-                    recovery_summary(movie_number, before, scraper.raw_result, reports, retried=retried, held=missing)
+                    recovery_summary(
+                        movie_number,
+                        before,
+                        scraper.raw_result,
+                        reports,
+                        retried=retried,
+                        held=missing,
+                        extra_note=extra_note,
+                    )
                 )
                 if missing:
-                    raise QualityHeld("必需字段仍缺，留原地：" + ", ".join(missing) + "；" + error_summary(reports))
+                    details = "；".join(part for part in (extra_note, error_summary(reports)) if part)
+                    raise QualityHeld(
+                        "必需字段仍缺，留原地：" + ", ".join(missing) + (f"；{details}" if details else "")
+                    )
             if res is None:
                 return None, None
             # 处理 FileInfo 和 CrawlersResult 的共同字段, 即 number/mosaic/letters
@@ -921,7 +1037,7 @@ class Scraper:
             replace_special_word(res)  # 替换特殊字符
             await translate_title_outline(res, file_info.cd_part, movie_number)  # 翻译json_data（标题/介绍）
             deal_some_field(res)  # 再处理一遍字段，翻译后可能出现要去除的内容
-            await translate_actor(res)  # 映射输出演员名/信息
+            await translate_actor(res, avwiki_result=avwiki_result)  # 映射输出演员名/信息
             translate_info(res, file_info.has_sub, file_info.umr_stage)  # 映射输出标签等信息
             replace_word(res)
 
