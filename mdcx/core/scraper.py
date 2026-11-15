@@ -119,7 +119,7 @@ def _apply_suren_avwiki_actors(
         if target is None:
             continue
         target.actors = list(pure_actors)
-        target.all_actors = list(dict.fromkeys([*target.all_actors, *pure_actors]))
+        target.all_actors = list(pure_actors)
         target.actor_amazon = list(dict.fromkeys([*target.actor_amazon, *pure_actors]))
         target.field_sources[CrawlerResultFields.ACTORS] = "av-wiki"
         target.field_sources[CrawlerResultFields.ALL_ACTORS] = "av-wiki"
@@ -961,6 +961,10 @@ class Scraper:
                     suren_missing_actors = False
                 elif not self._quality_retrying:
                     _log_suren_avwiki_miss(avwiki_result)
+            elif (
+                file_classification.scraping_type == FixedScrapingType.SUREN and avwiki_key in self._suren_avwiki_cache
+            ):
+                avwiki_result = self._suren_avwiki_cache[avwiki_key]
             if (batch := batch_diagnostics.get()) is not None:
                 missing_for_batch = set(missing_required(scraper.raw_result, file_classification.scraping_type))
                 if file_classification.scraping_type == FixedScrapingType.SUREN and getattr(
