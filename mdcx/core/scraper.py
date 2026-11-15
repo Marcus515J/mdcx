@@ -882,7 +882,14 @@ class Scraper:
                     scraper.reports,
                 )
             has_error = any(report.has_error for report in getattr(scraper, "reports", []))
-            if (has_error and bool(movie_number or file_info.appoint_url)) or file_path in self._quality_pending:
+            suren_missing_actors = (
+                file_classification.scraping_type == FixedScrapingType.SUREN
+                and scraper.raw_result is not None
+                and "actors" in missing_required(scraper.raw_result, file_classification.scraping_type)
+            )
+            if (
+                (has_error or suren_missing_actors) and bool(movie_number or file_info.appoint_url)
+            ) or file_path in self._quality_pending:
                 before, original_reports = self._quality_first.setdefault(
                     file_path, (copy_module.deepcopy(scraper.raw_result), list(scraper.reports))
                 )

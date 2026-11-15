@@ -16,7 +16,7 @@ from ..models.log_buffer import LogBuffer
 from ..models.types import CrawlerInput, CrawlerResponse, CrawlerResult, CrawlersResult, CrawlTask, score_to_10
 from ..number import is_uncensored
 from ..utils.dataclass import update
-from .actor_quality import fallback_mgstage_actors, has_mgstage_age_markers, valid_actor_names
+from .actor_quality import valid_actor_names, valid_suren_actor_names
 from .mosaic import is_guochan_mosaic, is_plain_uncensored_mosaic, normalize_mosaic
 from .scrape_quality import REQUIRED_FIELDS
 
@@ -269,6 +269,31 @@ class FileScraper:
             crawler = await self.crawler_provider.get(site)
             crawler.reset_wall_timeout(number)
 
+    def _mark_actor_parse_error(
+        self,
+        website: Website,
+        language: Language,
+        report: SiteReport | None,
+        reason: str,
+    ) -> None:
+        if report is None or report.missing.get("actors") in {CrawlStatus.NOT_FOUND, CrawlStatus.PARSE_ERROR}:
+            return
+        issue = CrawlIssue(CrawlStatus.PARSE_ERROR, reason)
+        report.issues.append(issue)
+        report.missing["actors"] = CrawlStatus.PARSE_ERROR
+        # BaseCrawler already observed the original report. Add only this new issue.
+        if (batch := batch_diagnostics.get()) is not None:
+            batch.record_report(SiteReport(website.value, [issue]))
+        LogBuffer.log().write(f"\n 🔴 {website.value}: {reason}")
+        cache_lang = language if website in MULTI_LANGUAGE_WEBSITES else Language.UNDEFINED
+        self.responses.pop((website, cache_lang), None)
+        if cache := self.request_caches.get((website, cache_lang)):
+            cache.clear()
+        if website in MULTI_LANGUAGE_WEBSITES:
+            self.responses.pop((website, Language.UNDEFINED), None)
+            if cache := self.request_caches.get((website, Language.UNDEFINED)):
+                cache.clear()
+
     async def _call_crawler(
         self,
         task_input: CrawlerInput,
@@ -289,7 +314,7 @@ class FileScraper:
             asyncio.TimeoutError: 如果请求超时
             Exception: 爬虫函数抛出的异常
         """
-        actor_required = "actors" in REQUIRED_FIELDS.get(scraping_type, ())
+        actor_required = scraping_type != FixedScrapingType.SUREN and "actors" in REQUIRED_FIELDS.get(scraping_type, ())
         short_number = task_input.short_number
         original_number = task_input.number
 
@@ -317,15 +342,9 @@ class FileScraper:
                     parsed_actors = r.data.actors
                     r.data.actors = valid_actor_names(parsed_actors)
                     r.data.all_actors = valid_actor_names(r.data.all_actors)
-                    if not r.data.actors and actor_required and r.report.missing.get("actors") != CrawlStatus.NOT_FOUND:
+                    if not r.data.actors and actor_required:
                         reason = "演员全是占位名" if any(a.strip() for a in parsed_actors) else "演员解析为空"
-                        issue = CrawlIssue(CrawlStatus.PARSE_ERROR, reason)
-                        r.report.issues.append(issue)
-                        r.report.missing["actors"] = CrawlStatus.PARSE_ERROR
-                        # BaseCrawler already observed the original report. Add only this new issue.
-                        if (batch := batch_diagnostics.get()) is not None:
-                            batch.record_report(SiteReport(website.value, [issue]))
-                        LogBuffer.log().write(f"\n 🔴 {website.value}: {reason}")
+                        self._mark_actor_parse_error(website, language, r.report, reason)
                 if any(issue.status == CrawlStatus.PARSE_ERROR for issue in r.report.issues):
                     # A successfully downloaded but malformed page must be fetched again.
                     self.request_caches[key].clear()
@@ -365,7 +384,7 @@ class FileScraper:
         f_sites = [s for s in type_field_config.site_prority if s in type_site_set]
         return f_sites, f_config.language
 
-    def _resolve_mgstage_aged_actors(
+    def _resolve_suren_actors(
         self,
         reduced: CrawlersResult,
         all_res: dict[tuple[Website, Language], CrawlerResult],
@@ -373,45 +392,53 @@ class FileScraper:
         use_type_field_config: bool,
         type_site_set: set[Website],
     ) -> None:
-        """Replace mgstage age-marked actors using already-fetched sites or strip the age marker."""
+        """Validate suren actors as pure names and pick the first qualified already-fetched site."""
         for field in (CrawlerResultFields.ACTORS, CrawlerResultFields.ALL_ACTORS):
-            if reduced.field_sources.get(field) != Website.MGSTAGE.value:
-                continue
-            current_actors = getattr(reduced, field.value, None)
-            if not has_mgstage_age_markers(current_actors):
+            current_actors = getattr(reduced, field.value, None) or []
+            if current_actors and valid_suren_actor_names(current_actors) == valid_actor_names(current_actors):
                 continue
 
             f_sites, f_lang = self._get_field_priority_sites_and_lang(
                 classification, use_type_field_config, type_site_set, field
             )
-            try:
-                mgstage_idx = f_sites.index(Website.MGSTAGE)
-            except ValueError:
-                mgstage_idx = -1
+            skipped_sites: list[str] = []
 
-            for site in f_sites[mgstage_idx + 1 :]:
+            for site in f_sites:
                 site_data = self._get_cached_site_result(all_res, site, f_lang)
                 if site_data is None:
                     continue
-                candidate = valid_actor_names(getattr(site_data, field.value, None))
+                raw_site_actors = getattr(site_data, field.value, None) or []
+                candidate = valid_suren_actor_names(raw_site_actors)
                 if candidate:
                     setattr(reduced, field.value, candidate)
                     reduced.field_sources[field] = site.value
-                    reduced.field_log += (
-                        f"\n    🔄 {field.value}: mgstage 含年龄标记，改取已抓站点 {site.value}\n     ↳{candidate}"
-                    )
+                    if skipped_sites:
+                        reduced.field_log += (
+                            f"\n    🔄 {field.value}: 跳过非纯演员名站点 ({' -> '.join(skipped_sites)})，"
+                            f"改取已抓站点 {site.value}\n     ↳{candidate}"
+                        )
+                    else:
+                        reduced.field_log += f"\n    🔄 {field.value}: 改取已抓站点 {site.value}\n     ↳{candidate}"
                     break
+                if raw_site_actors:
+                    skipped_sites.append(site.value)
             else:
-                fallback = fallback_mgstage_actors(current_actors)
-                if fallback:
-                    setattr(reduced, field.value, fallback)
+                setattr(reduced, field.value, [])
+                reduced.field_sources.pop(field, None)
+                if skipped_sites:
                     reduced.field_log += (
-                        f"\n    ✂️ {field.value}: 后续已抓站点无有效演员，切出 mgstage 年龄前名字\n     ↳{fallback}"
+                        f"\n    🔴 {field.value}: 已抓站点均无合格纯演员名 (已跳过: {' -> '.join(skipped_sites)})"
                     )
                 else:
-                    setattr(reduced, field.value, [])
-                    reduced.field_sources.pop(field, None)
-                    reduced.field_log += f"\n    🟡 {field.value}: mgstage 含年龄标记且切出为空，后续已抓站点无有效演员"
+                    reduced.field_log += f"\n    🔴 {field.value}: 所有已抓站点均无合格纯演员名"
+                if field == CrawlerResultFields.ACTORS:
+                    skipped_set = set(skipped_sites)
+                    for site in f_sites:
+                        if self._get_cached_site_result(all_res, site, f_lang) is None:
+                            continue
+                        report = next((r for r in reversed(self.reports) if r.site == site.value), None)
+                        reason = "演员含非纯演员名内容" if site.value in skipped_set else "演员解析为空"
+                        self._mark_actor_parse_error(site, f_lang, report, reason)
 
     async def _call_crawlers(
         self, task_input: CrawlerInput, classification: ScrapeClassification | list[Website] | set[Website]
@@ -558,12 +585,8 @@ class FileScraper:
         if len(all_res) == 0:
             return None
 
-        if classification.scraping_type not in (
-            FixedScrapingType.YOUMA,
-            FixedScrapingType.WUMA,
-            FixedScrapingType.FC2,
-        ):
-            self._resolve_mgstage_aged_actors(
+        if classification.scraping_type == FixedScrapingType.SUREN:
+            self._resolve_suren_actors(
                 reduced,
                 all_res,
                 classification,
@@ -620,13 +643,8 @@ class FileScraper:
         for data in all_res.values():
             # 记录所有来源的 actor 用于 Amazon 搜图
             if data.actor:
-                if (
-                    data.source == Website.MGSTAGE.value
-                    and classification.scraping_type
-                    not in (FixedScrapingType.YOUMA, FixedScrapingType.WUMA, FixedScrapingType.FC2)
-                    and has_mgstage_age_markers(data.actors)
-                ):
-                    reduced.actor_amazon.extend(fallback_mgstage_actors(data.actors))
+                if classification.scraping_type == FixedScrapingType.SUREN:
+                    reduced.actor_amazon.extend(valid_suren_actor_names(data.actors))
                 else:
                     reduced.actor_amazon.extend(data.actors)
         # 去重
@@ -679,6 +697,9 @@ class FileScraper:
         website: Website,
         title_language: Language,
         execution_time: float,
+        *,
+        scraping_type: FixedScrapingType = FixedScrapingType.AUTO,
+        report: SiteReport | None = None,
     ) -> CrawlersResult:
         res = update(CrawlersResult.empty(), web_data_json)
         if res.title:
@@ -694,6 +715,20 @@ class FileScraper:
             res.external_ids[website] = web_data_json.external_id
 
             res.site_log = f"\n 🌐 [website] {sprint_source(website, title_language)} ({execution_time:.2f}s)"
+
+        if scraping_type == FixedScrapingType.SUREN:
+            raw_actors = list(res.actors)
+            res.actors = valid_suren_actor_names(res.actors)
+            res.all_actors = valid_suren_actor_names(res.all_actors)
+            if not res.actors:
+                res.field_sources.pop(CrawlerResultFields.ACTORS, None)
+                reason = "演员含非纯演员名内容" if raw_actors else "演员解析为空"
+                self._mark_actor_parse_error(website, title_language, report, reason)
+            if not res.all_actors:
+                res.field_sources.pop(CrawlerResultFields.ALL_ACTORS, None)
+            res.actor_amazon = list(res.actors)
+            res.all_actors = list(dict.fromkeys(chain(res.all_actors, res.actors)))
+            return res
 
         res.actor_amazon = web_data_json.actors
         res.all_actors = list(dict.fromkeys(chain(res.all_actors, web_data_json.actors)))
@@ -720,7 +755,12 @@ class FileScraper:
             return None
 
         res = self._convert_specific_crawler_result(
-            web_data_json, website, title_language, web_data.debug_info.execution_time
+            web_data_json,
+            website,
+            title_language,
+            web_data.debug_info.execution_time,
+            scraping_type=scraping_type,
+            report=web_data.report,
         )
 
         if short_number:
@@ -756,7 +796,12 @@ class FileScraper:
                 continue
 
             res = self._convert_specific_crawler_result(
-                web_data.data, website, title_language, web_data.debug_info.execution_time
+                web_data.data,
+                website,
+                title_language,
+                web_data.debug_info.execution_time,
+                scraping_type=classification.scraping_type,
+                report=web_data.report,
             )
             if failed_info:
                 res.field_log = "\n    ⚡ 速度优先跳过: " + " -> ".join(failed_info)
