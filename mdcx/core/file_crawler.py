@@ -16,7 +16,7 @@ from ..models.log_buffer import LogBuffer
 from ..models.types import CrawlerInput, CrawlerResponse, CrawlerResult, CrawlersResult, CrawlTask, score_to_10
 from ..number import is_uncensored
 from ..utils.dataclass import update
-from .actor_quality import valid_actor_names
+from .actor_quality import fallback_mgstage_actors, has_mgstage_age_markers, valid_actor_names
 from .mosaic import is_guochan_mosaic, is_plain_uncensored_mosaic, normalize_mosaic
 from .scrape_quality import REQUIRED_FIELDS
 
@@ -350,6 +350,69 @@ class FileScraper:
         finally:
             task_input.number = original_number
 
+    def _get_field_priority_sites_and_lang(
+        self,
+        classification: ScrapeClassification,
+        use_type_field_config: bool,
+        type_site_set: set[Website],
+        field: CrawlerResultFields,
+    ) -> tuple[list[Website], Language]:
+        f_config = self.config.get_field_config(field)
+        if use_type_field_config and hasattr(self.config, "get_type_field_config"):
+            type_field_config = self.config.get_type_field_config(classification.scraping_type, field)
+        else:
+            type_field_config = f_config
+        f_sites = [s for s in type_field_config.site_prority if s in type_site_set]
+        return f_sites, f_config.language
+
+    def _resolve_mgstage_aged_actors(
+        self,
+        reduced: CrawlersResult,
+        all_res: dict[tuple[Website, Language], CrawlerResult],
+        classification: ScrapeClassification,
+        use_type_field_config: bool,
+        type_site_set: set[Website],
+    ) -> None:
+        """Replace mgstage age-marked actors using already-fetched sites or strip the age marker."""
+        for field in (CrawlerResultFields.ACTORS, CrawlerResultFields.ALL_ACTORS):
+            if reduced.field_sources.get(field) != Website.MGSTAGE.value:
+                continue
+            current_actors = getattr(reduced, field.value, None)
+            if not has_mgstage_age_markers(current_actors):
+                continue
+
+            f_sites, f_lang = self._get_field_priority_sites_and_lang(
+                classification, use_type_field_config, type_site_set, field
+            )
+            try:
+                mgstage_idx = f_sites.index(Website.MGSTAGE)
+            except ValueError:
+                mgstage_idx = -1
+
+            for site in f_sites[mgstage_idx + 1 :]:
+                site_data = self._get_cached_site_result(all_res, site, f_lang)
+                if site_data is None:
+                    continue
+                candidate = valid_actor_names(getattr(site_data, field.value, None))
+                if candidate:
+                    setattr(reduced, field.value, candidate)
+                    reduced.field_sources[field] = site.value
+                    reduced.field_log += (
+                        f"\n    🔄 {field.value}: mgstage 含年龄标记，改取已抓站点 {site.value}\n     ↳{candidate}"
+                    )
+                    break
+            else:
+                fallback = fallback_mgstage_actors(current_actors)
+                if fallback:
+                    setattr(reduced, field.value, fallback)
+                    reduced.field_log += (
+                        f"\n    ✂️ {field.value}: 后续已抓站点无有效演员，切出 mgstage 年龄前名字\n     ↳{fallback}"
+                    )
+                else:
+                    setattr(reduced, field.value, [])
+                    reduced.field_sources.pop(field, None)
+                    reduced.field_log += f"\n    🟡 {field.value}: mgstage 含年龄标记且切出为空，后续已抓站点无有效演员"
+
     async def _call_crawlers(
         self, task_input: CrawlerInput, classification: ScrapeClassification | list[Website] | set[Website]
     ) -> CrawlersResult | None:
@@ -377,13 +440,9 @@ class FileScraper:
         # 按字段分别处理，每个字段按优先级尝试获取
         for field in ManualConfig.REDUCED_FIELDS:
             # 获取该字段的优先级列表
-            f_config = self.config.get_field_config(field)
-            if use_type_field_config and hasattr(self.config, "get_type_field_config"):
-                type_field_config = self.config.get_type_field_config(classification.scraping_type, field)
-            else:
-                type_field_config = f_config
-            f_sites = [s for s in type_field_config.site_prority if s in type_site_set]
-            f_lang = f_config.language
+            f_sites, f_lang = self._get_field_priority_sites_and_lang(
+                classification, use_type_field_config, type_site_set, field
+            )
             if field == CrawlerResultFields.SCORE:
                 score_chain = f_sites
             elif field == CrawlerResultFields.WANTED:
@@ -499,6 +558,19 @@ class FileScraper:
         if len(all_res) == 0:
             return None
 
+        if classification.scraping_type not in (
+            FixedScrapingType.YOUMA,
+            FixedScrapingType.WUMA,
+            FixedScrapingType.FC2,
+        ):
+            self._resolve_mgstage_aged_actors(
+                reduced,
+                all_res,
+                classification,
+                use_type_field_config,
+                type_site_set,
+            )
+
         # 评分汇总日志: 保留链上状态，并补齐所有已抓站点，不为汇总额外请求。
         score_summary = "\n\n    📊 评分汇总\n    ===================================="
         for site in dict.fromkeys([*score_chain, *wanted_chain, *(s for s, _ in all_res)]):
@@ -548,7 +620,15 @@ class FileScraper:
         for data in all_res.values():
             # 记录所有来源的 actor 用于 Amazon 搜图
             if data.actor:
-                reduced.actor_amazon.extend(data.actors)
+                if (
+                    data.source == Website.MGSTAGE.value
+                    and classification.scraping_type
+                    not in (FixedScrapingType.YOUMA, FixedScrapingType.WUMA, FixedScrapingType.FC2)
+                    and has_mgstage_age_markers(data.actors)
+                ):
+                    reduced.actor_amazon.extend(fallback_mgstage_actors(data.actors))
+                else:
+                    reduced.actor_amazon.extend(data.actors)
         # 去重
         reduced.thumb_list = list(dict.fromkeys(reduced.thumb_list))  # 保序
         reduced.poster_list = list(dict.fromkeys(reduced.poster_list))  # 保序
