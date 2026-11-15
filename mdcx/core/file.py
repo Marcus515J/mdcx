@@ -30,7 +30,6 @@ from .mosaic import normalize_mosaic
 from .naming import FIELD_DESCRIPTIONS, NameRenderOptions, NamingTarget, render_name
 from .naming.fields import get_version_suffixes
 
-
 _COMPACT_DEFINITION_REGEX = "|".join(("4K60FPS", "4KS", "8K", "4K"))
 _UMR_BOUNDARY_REGEX = rf"(?=(?:{_COMPACT_DEFINITION_REGEX}|[-_.\s\]\)]|$))"
 
