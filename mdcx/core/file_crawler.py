@@ -223,6 +223,7 @@ class FileScraper:
         self.request_caches: dict[tuple, dict] = {}
         self.reports: list[SiteReport] = []
         self.raw_result: CrawlersResult | None = None
+        self.suren_skipped_actor_sites: list[str] = []
 
     @staticmethod
     def _is_invalid_runtime(value: object) -> bool:
@@ -269,6 +270,26 @@ class FileScraper:
             crawler = await self.crawler_provider.get(site)
             crawler.reset_wall_timeout(number)
 
+    def _clear_site_cache(self, website: Website, language: Language) -> None:
+        cache_lang = language if website in MULTI_LANGUAGE_WEBSITES else Language.UNDEFINED
+        self.responses.pop((website, cache_lang), None)
+        if cache := self.request_caches.get((website, cache_lang)):
+            cache.clear()
+        if website in MULTI_LANGUAGE_WEBSITES:
+            self.responses.pop((website, Language.UNDEFINED), None)
+            if cache := self.request_caches.get((website, Language.UNDEFINED)):
+                cache.clear()
+
+    def _mark_suren_actor_missing(
+        self,
+        website: Website,
+        language: Language,
+        report: SiteReport | None,
+    ) -> None:
+        if report is not None and report.missing.get("actors") not in {CrawlStatus.NOT_FOUND, CrawlStatus.PARSE_ERROR}:
+            report.missing["actors"] = CrawlStatus.MISSING
+        self._clear_site_cache(website, language)
+
     def _mark_actor_parse_error(
         self,
         website: Website,
@@ -285,14 +306,7 @@ class FileScraper:
         if (batch := batch_diagnostics.get()) is not None:
             batch.record_report(SiteReport(website.value, [issue]))
         LogBuffer.log().write(f"\n 🔴 {website.value}: {reason}")
-        cache_lang = language if website in MULTI_LANGUAGE_WEBSITES else Language.UNDEFINED
-        self.responses.pop((website, cache_lang), None)
-        if cache := self.request_caches.get((website, cache_lang)):
-            cache.clear()
-        if website in MULTI_LANGUAGE_WEBSITES:
-            self.responses.pop((website, Language.UNDEFINED), None)
-            if cache := self.request_caches.get((website, Language.UNDEFINED)):
-                cache.clear()
+        self._clear_site_cache(website, language)
 
     async def _call_crawler(
         self,
@@ -427,18 +441,23 @@ class FileScraper:
                 reduced.field_sources.pop(field, None)
                 if skipped_sites:
                     reduced.field_log += (
-                        f"\n    🔴 {field.value}: 已抓站点均无合格纯演员名 (已跳过: {' -> '.join(skipped_sites)})"
+                        f"\n    ⚪ {field.value}: 没有合格的纯演员名 (已跳过: {' -> '.join(skipped_sites)})"
                     )
                 else:
-                    reduced.field_log += f"\n    🔴 {field.value}: 所有已抓站点均无合格纯演员名"
+                    reduced.field_log += f"\n    ⚪ {field.value}: 没有合格的纯演员名 (已抓站点均无演员值)"
                 if field == CrawlerResultFields.ACTORS:
-                    skipped_set = set(skipped_sites)
+                    self.suren_skipped_actor_sites = list(skipped_sites)
+                    if skipped_sites:
+                        LogBuffer.log().write(
+                            f"\n ⚪ actors: 没有合格的纯演员名（已跳过: {' -> '.join(skipped_sites)}）"
+                        )
+                    else:
+                        LogBuffer.log().write("\n ⚪ actors: 没有合格的纯演员名（已抓站点均无演员值）")
                     for site in f_sites:
                         if self._get_cached_site_result(all_res, site, f_lang) is None:
                             continue
                         report = next((r for r in reversed(self.reports) if r.site == site.value), None)
-                        reason = "演员含非纯演员名内容" if site.value in skipped_set else "演员解析为空"
-                        self._mark_actor_parse_error(site, f_lang, report, reason)
+                        self._mark_suren_actor_missing(site, f_lang, report)
 
     async def _call_crawlers(
         self, task_input: CrawlerInput, classification: ScrapeClassification | list[Website] | set[Website]
@@ -722,8 +741,15 @@ class FileScraper:
             res.all_actors = valid_suren_actor_names(res.all_actors)
             if not res.actors:
                 res.field_sources.pop(CrawlerResultFields.ACTORS, None)
-                reason = "演员含非纯演员名内容" if raw_actors else "演员解析为空"
-                self._mark_actor_parse_error(website, title_language, report, reason)
+                if raw_actors:
+                    self.suren_skipped_actor_sites = [website.value]
+                    res.field_log += f"\n    ⚪ actors: 没有合格的纯演员名 (已跳过: {website.value})"
+                    LogBuffer.log().write(f"\n ⚪ actors: 没有合格的纯演员名（已跳过: {website.value}）")
+                else:
+                    self.suren_skipped_actor_sites = []
+                    res.field_log += f"\n    ⚪ actors: 没有合格的纯演员名 ({website.value} 未返回演员)"
+                    LogBuffer.log().write(f"\n ⚪ actors: 没有合格的纯演员名（{website.value} 未返回演员）")
+                self._mark_suren_actor_missing(website, title_language, report)
             if not res.all_actors:
                 res.field_sources.pop(CrawlerResultFields.ALL_ACTORS, None)
             res.actor_amazon = list(res.actors)
@@ -912,6 +938,7 @@ class FileScraper:
         if site is not None:
             site = Website(site)
         self.reports = []
+        self.suren_skipped_actor_sites = []
         res = await self._crawl(task_input, site)
         self.raw_result = copy.deepcopy(res)
         if res is None:

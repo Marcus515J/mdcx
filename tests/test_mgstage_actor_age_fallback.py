@@ -1,5 +1,6 @@
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -12,6 +13,7 @@ from mdcx.gen.field_enums import CrawlerResultFields
 from mdcx.models.crawl_status import BatchDiagnostics, CrawlStatus, batch_diagnostics
 from mdcx.models.enums import FileMode
 from mdcx.models.flags import Flags
+from mdcx.models.log_buffer import LogBuffer
 from mdcx.models.types import CrawlerDebugInfo, CrawlerInput, CrawlerResponse, CrawlerResult, FileInfo
 from mdcx.web_async import AsyncWebClient
 from tests.crawlers.test_javlibrary_429_backoff import FakeResponse
@@ -307,11 +309,16 @@ async def test_suren_no_pure_actor_defers_once_then_holds_without_ban_counting(
     secondary_actors: list[str],
 ):
     from mdcx.core import scraper as scraper_module
+    from mdcx.core import translate as translate_module
 
     sites = [Website.MGSTAGE, Website.MMTV]
     config = _make_suren_config(sites=sites, score_sites=[Website.MMTV])
     monkeypatch.setattr(scraper_module, "manager", SimpleNamespace(config=config))
+    monkeypatch.setattr(translate_module, "manager", SimpleNamespace(config=config))
+    avwiki_mock = AsyncMock(return_value=(False, "No Result!"))
+    monkeypatch.setattr(translate_module, "get_actorname", avwiki_mock)
     Flags.reset()
+    LogBuffer.clear_task()
     scraper_module.signal.stop = False
 
     movie_path = tmp_path / "999TEST-004.mp4"
@@ -386,25 +393,38 @@ async def test_suren_no_pure_actor_defers_once_then_holds_without_ban_counting(
     token = batch_diagnostics.set(batch)
     try:
         scraper = scraper_module.Scraper(provider)
-        with pytest.raises(QualityDeferred):
+        with pytest.raises(QualityDeferred) as deferred_exc:
             await scraper._process_one_file(info, FileMode.Default)
+        assert "没有合格的纯演员名" in str(deferred_exc.value)
         assert missing_required(scraper._quality_pending[movie_path].raw_result, FixedScrapingType.SUREN) == ["actors"]
         assert not any(batch.service_streaks.values())
         assert not batch.stop_reason
         assert all(state.failure_count == 0 for state in client._site_ban_states.values())
 
         scraper._quality_retrying = True
-        with pytest.raises(QualityHeld, match="留原地：actors"):
+        with pytest.raises(QualityHeld, match="留原地：actors") as held_exc:
             await scraper._process_one_file(info, FileMode.Default)
 
+        assert avwiki_mock.await_count == 1
+        assert len(records) == 4
+        assert "没有合格的纯演员名" in str(held_exc.value)
+        assert "解析异常" not in str(held_exc.value)
+        assert "没有合格的纯演员名" in scraper._quality_summaries[0]
+        assert "解析异常" not in scraper._quality_summaries[0]
+        if primary_actors:
+            assert "mgstage -> 7mmtv" in str(held_exc.value)
+            assert "mgstage -> 7mmtv" in LogBuffer.log().get()
+        assert not any(batch.parse_errors.values())
+        assert not any("页面没有被程序正常识别" in line for line in batch.lines())
         assert all(
-            issue.status != CrawlStatus.REQUEST_ERROR
+            issue.status not in {CrawlStatus.REQUEST_ERROR, CrawlStatus.PARSE_ERROR}
             for report in scraper._quality_pending[movie_path].reports
             for issue in report.issues
         )
         assert list(tmp_path.iterdir()) == [movie_path]
         assert movie_path.read_bytes() == b"original"
     finally:
+        LogBuffer.clear_task()
         batch_diagnostics.reset(token)
         await client.close()
 
@@ -504,3 +524,254 @@ async def test_youma_wuma_fc2_actor_behavior_unchanged():
         assert res is not None
         assert res.actors == ["桜庭テスト25歳会社員"]
         assert res.all_actors == ["桜庭テスト25歳会社員"]
+
+
+@pytest.mark.asyncio
+async def test_suren_all_impure_sites_rescued_by_pure_avwiki_actor_enters_output(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    from mdcx.core import scraper as scraper_module
+    from mdcx.core import translate as translate_module
+    from mdcx.core import utils as utils_module
+
+    sites = [Website.MGSTAGE, Website.MMTV]
+    config = _make_suren_config(sites=sites, score_sites=[Website.MMTV])
+    config.actor_realname = True
+    config.get_field_config(CrawlerResultFields.ACTORS).translate = False
+    monkeypatch.setattr(scraper_module, "manager", SimpleNamespace(config=config))
+    monkeypatch.setattr(translate_module, "manager", SimpleNamespace(config=config))
+    monkeypatch.setattr(utils_module, "manager", SimpleNamespace(config=config))
+    avwiki_mock = AsyncMock(return_value=(True, "白石ゆい"))
+    monkeypatch.setattr(translate_module, "get_actorname", avwiki_mock)
+    Flags.reset()
+    LogBuffer.clear_task()
+    scraper_module.signal.stop = False
+
+    movie_path = tmp_path / "999TEST-007.mp4"
+    movie_path.write_bytes(b"original")
+    info = FileInfo.empty()
+    info.number = "999TEST-007"
+    info.file_path = movie_path
+    info.folder_path = tmp_path
+
+    async def check(*_args):
+        return True
+
+    async def noop_async(*_args, **_kwargs):
+        return None
+
+    async def fake_video_size(*_args, **_kwargs):
+        return "", ""
+
+    captured: dict[str, object] = {}
+
+    class StopAfterOutputName(Exception):
+        pass
+
+    def fake_get_output_name(file_info, result, success_folder, file_ex):
+        captured["result"] = result
+        captured["folder_name"] = result.actor
+        raise StopAfterOutputName
+
+    monkeypatch.setattr(scraper_module, "check_file", check)
+    monkeypatch.setattr(
+        scraper_module,
+        "get_movie_path_setting",
+        lambda *_args: SimpleNamespace(success_folder=tmp_path / "output", movie_path=tmp_path),
+    )
+    monkeypatch.setattr(scraper_module, "translate_title_outline", noop_async)
+    monkeypatch.setattr(scraper_module, "translate_info", lambda res, *_args: res)
+    monkeypatch.setattr(scraper_module, "replace_word", lambda res: res)
+    monkeypatch.setattr(scraper_module, "get_video_size", fake_video_size)
+    monkeypatch.setattr(scraper_module, "get_output_name", fake_get_output_name)
+
+    records: list[Website] = []
+    provider = _RecordingProvider(
+        {
+            Website.MGSTAGE: _RecordingCrawler(
+                Website.MGSTAGE,
+                records,
+                _make_result(
+                    Website.MGSTAGE,
+                    title="テスト作品",
+                    actors=["桜庭テスト25歳会社員"],
+                    all_actors=["桜庭テスト25歳会社員"],
+                    thumb="https://example.test/thumb.jpg",
+                ),
+            ),
+            Website.MMTV: _RecordingCrawler(
+                Website.MMTV,
+                records,
+                _make_result(
+                    Website.MMTV,
+                    actors=["桜庭テストさん"],
+                    all_actors=["桜庭テストさん"],
+                    score="4.0",
+                    score_max="5",
+                ),
+            ),
+        }
+    )
+
+    batch = BatchDiagnostics()
+    token = batch_diagnostics.set(batch)
+    try:
+        scraper = scraper_module.Scraper(provider)
+        with pytest.raises(StopAfterOutputName):
+            await scraper._process_one_file(info, FileMode.Default)
+
+        res = captured["result"]
+        assert isinstance(res, CrawlerResult) or hasattr(res, "actors")
+        assert res.actors == ["白石ゆい"]
+        assert res.all_actors == ["白石ゆい"]
+        assert res.field_sources[CrawlerResultFields.ACTORS] == "av-wiki"
+        assert captured["folder_name"] == "白石ゆい"
+        assert avwiki_mock.await_count == 1
+        assert "跳过非纯演员名站点 (mgstage -> 7mmtv)，改取 Av-wiki" in res.field_log
+        log_text = LogBuffer.log().get()
+        assert "Av-wiki done! Actor's real Japanese name is '白石ゆい'" in log_text
+        assert not any(batch.parse_errors.values())
+        assert not any("页面没有被程序正常识别" in line for line in batch.lines())
+    finally:
+        LogBuffer.clear_task()
+        batch_diagnostics.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_suren_all_impure_sites_and_impure_avwiki_defers_once_then_holds_with_diagnostic(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+):
+    from mdcx.core import scraper as scraper_module
+    from mdcx.core import translate as translate_module
+
+    sites = [Website.MGSTAGE, Website.MMTV]
+    config = _make_suren_config(sites=sites, score_sites=[Website.MMTV])
+    config.actor_realname = True
+    monkeypatch.setattr(scraper_module, "manager", SimpleNamespace(config=config))
+    monkeypatch.setattr(translate_module, "manager", SimpleNamespace(config=config))
+    avwiki_mock = AsyncMock(return_value=(True, "白石ゆいさん"))
+    monkeypatch.setattr(translate_module, "get_actorname", avwiki_mock)
+    Flags.reset()
+    LogBuffer.clear_task()
+    scraper_module.signal.stop = False
+
+    movie_path = tmp_path / "999TEST-008.mp4"
+    movie_path.write_bytes(b"original")
+    info = FileInfo.empty()
+    info.number = "999TEST-008"
+    info.file_path = movie_path
+    info.folder_path = tmp_path
+
+    async def check(*_args):
+        return True
+
+    monkeypatch.setattr(scraper_module, "check_file", check)
+    monkeypatch.setattr(
+        scraper_module,
+        "get_movie_path_setting",
+        lambda *_args: SimpleNamespace(success_folder=tmp_path / "output", movie_path=tmp_path),
+    )
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("suren actor quality gate allowed output")
+
+    for name in [
+        "show_result",
+        "translate_title_outline",
+        "translate_actor",
+        "get_output_name",
+        "creat_folder",
+        "write_nfo",
+        "poster_download",
+        "thumb_download",
+        "fanart_download",
+        "move_movie",
+    ]:
+        monkeypatch.setattr(scraper_module, name, forbidden)
+
+    records: list[Website] = []
+    provider = _RecordingProvider(
+        {
+            Website.MGSTAGE: _RecordingCrawler(
+                Website.MGSTAGE,
+                records,
+                _make_result(
+                    Website.MGSTAGE,
+                    title="テスト作品",
+                    actors=["桜庭テスト25歳会社員"],
+                    all_actors=["桜庭テスト25歳会社員"],
+                    thumb="https://example.test/thumb.jpg",
+                ),
+            ),
+            Website.MMTV: _RecordingCrawler(
+                Website.MMTV,
+                records,
+                _make_result(
+                    Website.MMTV,
+                    actors=["桜庭テストさん"],
+                    all_actors=["桜庭テストさん"],
+                    score="4.0",
+                    score_max="5",
+                ),
+            ),
+        }
+    )
+
+    batch = BatchDiagnostics()
+    token = batch_diagnostics.set(batch)
+    try:
+        scraper = scraper_module.Scraper(provider)
+        with pytest.raises(QualityDeferred):
+            await scraper._process_one_file(info, FileMode.Default)
+
+        scraper._quality_retrying = True
+        with pytest.raises(QualityHeld, match="留原地：actors") as held_exc:
+            await scraper._process_one_file(info, FileMode.Default)
+
+        assert avwiki_mock.await_count == 1
+        assert len(records) == 4
+        assert "没有合格的纯演员名（已跳过: mgstage -> 7mmtv -> av-wiki）" in str(held_exc.value)
+        assert "解析异常" not in str(held_exc.value)
+        assert "没有合格的纯演员名（已跳过: mgstage -> 7mmtv -> av-wiki）" in scraper._quality_summaries[0]
+        assert "Av-wiki: 没有合格的纯演员名" in LogBuffer.log().get()
+        assert not any(batch.parse_errors.values())
+        assert not any("页面没有被程序正常识别" in line for line in batch.lines())
+        assert list(tmp_path.iterdir()) == [movie_path]
+        assert movie_path.read_bytes() == b"original"
+    finally:
+        LogBuffer.clear_task()
+        batch_diagnostics.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_suren_pure_site_actor_rejects_impure_avwiki_and_keeps_single_request(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from mdcx.core import translate as translate_module
+
+    config = _make_suren_config()
+    config.actor_realname = True
+    config.get_field_config(CrawlerResultFields.ACTORS).translate = False
+    monkeypatch.setattr(translate_module, "manager", SimpleNamespace(config=config))
+    avwiki_mock = AsyncMock(return_value=(True, "白石ゆいさん"))
+    monkeypatch.setattr(translate_module, "get_actorname", avwiki_mock)
+    LogBuffer.clear_task()
+
+    from mdcx.models.types import CrawlersResult
+
+    real_res = CrawlersResult.empty()
+    real_res.number = "999TEST-009"
+    real_res.scraping_type = FixedScrapingType.SUREN
+    real_res.actors = ["白石ゆい"]
+    real_res.all_actors = ["白石ゆい"]
+
+    try:
+        await translate_module.translate_actor(real_res)
+        assert avwiki_mock.await_count == 1
+        assert real_res.actors == ["白石ゆい"]
+        assert real_res.all_actors == ["白石ゆい"]
+        assert "Av-wiki: 没有合格的纯演员名" in LogBuffer.log().get()
+    finally:
+        LogBuffer.clear_task()

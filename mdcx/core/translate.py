@@ -1,5 +1,6 @@
 import re
 import time
+from dataclasses import dataclass
 
 import zhconv
 
@@ -20,6 +21,7 @@ from ..number import get_number_letters
 from ..signals import signal
 from ..utils import clean_list, get_used_time
 from ..utils.language import is_japanese, is_probably_english_for_translation
+from .actor_quality import valid_suren_actor_names
 from .mosaic import UMR_STAGE_TAGS, get_umr_stage_tag, has_umr_mark, normalize_mosaic
 
 AVWIKI_SCRAPING_TYPES = {
@@ -193,31 +195,85 @@ def translate_info(json_data: CrawlersResult, has_sub: bool, umr_stage: str = ""
     return json_data
 
 
-async def translate_actor(res: CrawlersResult):
+@dataclass(frozen=True)
+class AvwikiActorQueryResult:
+    ok: bool
+    value: str
+    elapsed: float
+    pure_actors: list[str]
+    rejected_impure: bool = False
+
+
+def _avwiki_query_number(res: CrawlersResult) -> str:
+    number = res.number
+    if FieldRule.DEL_NUM in manager.config.fields_rule:
+        if temp_n := re.findall(r"\d{3,}([a-zA-Z]+-\d+)", number):
+            return temp_n[0]
+    return number
+
+
+def _apply_avwiki_actor_result(res: CrawlersResult, temp_actor: str) -> None:
+    prev_actor = res.actor
+    new_actors = [a.strip() for a in temp_actor.split(",") if a.strip()]
+    actor_list = list(res.all_actors)
+    res.actors = new_actors
+    if prev_actor and actor_list:
+        replaced = False
+        updated_list: list[str] = []
+        for item in actor_list:
+            if prev_actor in item:
+                for actor in new_actors:
+                    if actor not in updated_list:
+                        updated_list.append(actor)
+                replaced = True
+            elif item not in updated_list:
+                updated_list.append(item)
+        if not replaced:
+            updated_list = list(dict.fromkeys([*new_actors, *actor_list]))
+        res.all_actors = updated_list
+    else:
+        res.all_actors = list(dict.fromkeys([*actor_list, *new_actors]))
+
+
+async def query_avwiki_actor(res: CrawlersResult) -> AvwikiActorQueryResult:
+    start_time = time.time()
+    result, temp_actor = await get_actorname(_avwiki_query_number(res))
+    elapsed = round(time.time() - start_time, 2)
+    if not result:
+        return AvwikiActorQueryResult(ok=False, value=temp_actor, elapsed=elapsed, pure_actors=[])
+    parsed = [a.strip() for a in temp_actor.split(",") if a.strip()]
+    if res.scraping_type == FixedScrapingType.SUREN:
+        pure = valid_suren_actor_names(parsed)
+        if not pure:
+            return AvwikiActorQueryResult(
+                ok=False,
+                value=temp_actor,
+                elapsed=elapsed,
+                pure_actors=[],
+                rejected_impure=True,
+            )
+        return AvwikiActorQueryResult(ok=True, value=",".join(pure), elapsed=elapsed, pure_actors=pure)
+    return AvwikiActorQueryResult(ok=True, value=temp_actor, elapsed=elapsed, pure_actors=parsed)
+
+
+async def translate_actor(res: CrawlersResult, *, avwiki_result: AvwikiActorQueryResult | None = None):
     # 网络请求真实的演员名字
     actor_realname = manager.config.actor_realname
 
     # 非读取模式，勾选了使用真实名字时; 读取模式，勾选了允许更新真实名字时
     if actor_realname:
-        start_time = time.time()
         if _should_query_avwiki_actor(res):
-            result, temp_actor = await get_actorname(res.number)
-            if result:
-                actor: str = res.actor
-                actor_list = res.all_actors
-                res.actor = temp_actor
-                # 从actor_list中循环查找元素是否包含字符串temp_actor，有则替换
-                for item in actor_list:
-                    if item.find(actor) != -1:
-                        actor_list[actor_list.index(item)] = temp_actor
-                res.all_actors = actor_list
-
+            query = avwiki_result if avwiki_result is not None else await query_avwiki_actor(res)
+            if query.ok:
+                _apply_avwiki_actor_result(res, query.value)
                 LogBuffer.log().write(
-                    f"\n 👩🏻 Av-wiki done! Actor's real Japanese name is '{temp_actor}' ({get_used_time(start_time)}s)"
+                    f"\n 👩🏻 Av-wiki done! Actor's real Japanese name is '{query.value}' ({query.elapsed}s)"
                 )
+            elif query.rejected_impure:
+                LogBuffer.log().write(f"\n ⚪ Av-wiki: 没有合格的纯演员名 ({query.elapsed}s)")
             else:
-                marker = "⚪" if temp_actor == "No Result!" else "🔴"
-                LogBuffer.log().write(f"\n {marker} Av-wiki failed! {temp_actor} ({get_used_time(start_time)}s)")
+                marker = "⚪" if query.value == "No Result!" else "🔴"
+                LogBuffer.log().write(f"\n {marker} Av-wiki failed! {query.value} ({query.elapsed}s)")
 
     # 如果不映射，返回
     if not manager.config.get_field_config(CrawlerResultFields.ACTORS).translate:

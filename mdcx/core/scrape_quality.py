@@ -41,10 +41,17 @@ def missing_required(result, scraping_type):
     return missing
 
 
-async def retryable_sites(scraper):
+async def retryable_sites(scraper, *, include_suren_missing_actors: bool = False):
     sites = []
     for report in scraper.reports:
-        if not report.has_error or all(i.status == CrawlStatus.SKIPPED for i in report.issues):
+        suren_actor_missing = (
+            include_suren_missing_actors
+            and report.missing.get("actors") == CrawlStatus.MISSING
+            and not (report.issues and all(i.status == CrawlStatus.SKIPPED for i in report.issues))
+        )
+        if not report.has_error and not suren_actor_missing:
+            continue
+        if report.has_error and all(i.status == CrawlStatus.SKIPPED for i in report.issues):
             continue
         crawler = await scraper.crawler_provider.get(Website(report.site))
         if not getattr(crawler, "is_stopped", lambda: False)():
@@ -67,7 +74,7 @@ def error_summary(reports):
     return "；".join(dict.fromkeys(lines))
 
 
-def recovery_summary(number, before, after, reports, *, retried, held):
+def recovery_summary(number, before, after, reports, *, retried, held, extra_note=""):
     recovered = []
     if after:
         for name in FIELD_LABELS:
@@ -79,4 +86,7 @@ def recovery_summary(number, before, after, reports, *, retried, held):
                 recovered.append(f"{FIELD_LABELS[name]} ← {source or '未知来源'}")
     state = "批末重刮一次" if retried else "出错站已停，不重刮"
     disposition = "留原地，缺 " + "、".join(FIELD_LABELS[n] for n in held) if held else "字段齐，入库"
-    return f"{number}: {state}；补回 {'、'.join(recovered) or '无'}；{disposition}；{error_summary(reports)}"
+    details = "；".join(part for part in (extra_note, error_summary(reports)) if part)
+    return f"{number}: {state}；补回 {'、'.join(recovered) or '无'}；{disposition}" + (
+        f"；{details}" if details else ""
+    )

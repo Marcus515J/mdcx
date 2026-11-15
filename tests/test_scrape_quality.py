@@ -690,10 +690,15 @@ async def test_batch_normal_absence_uses_merged_required_fields(gate_env, monkey
 @pytest.mark.parametrize("action,reason", [("actor_empty", "演员解析为空"), ("actor_placeholder", "演员全是占位名")])
 @pytest.mark.parametrize("kind", [FixedScrapingType.YOUMA, FixedScrapingType.WUMA, FixedScrapingType.SUREN])
 async def test_invalid_actors_defer_then_hold_before_any_output(gate_env, monkeypatch, tmp_path, action, reason, kind):
+    from unittest.mock import AsyncMock
+
+    from mdcx.core import translate as translate_module
+
     module, info = gate_env
     monkeypatch.setattr(module.manager.config, "fixed_scraping_type", kind)
     monkeypatch.setattr(module.manager.config, "website_wuma", [Website.DMM, Website.JAVDB])
     monkeypatch.setattr(module.manager.config, "website_suren", [Website.DMM, Website.JAVDB])
+    monkeypatch.setattr(translate_module, "get_actorname", AsyncMock(return_value=(False, "No Result!")))
     source, records = provider([action, action], [action, action])
     info.file_path.write_bytes(b"original")
 
@@ -717,7 +722,7 @@ async def test_invalid_actors_defer_then_hold_before_any_output(gate_env, monkey
         await scraper._process_one_file(info, FileMode.Default)
     assert missing_required(scraper._quality_pending[info.file_path].raw_result, kind) == ["actors"]
     scraper._quality_retrying = True
-    expected_reason = "演员解析为空" if kind == FixedScrapingType.SUREN else reason
+    expected_reason = "没有合格的纯演员名" if kind == FixedScrapingType.SUREN else reason
     with pytest.raises(QualityHeld, match=expected_reason):
         await scraper._process_one_file(info, FileMode.Default)
     assert len(records) == 4  # Empty source responses must be parsed again, not reused as successes.
