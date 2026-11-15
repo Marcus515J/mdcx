@@ -764,7 +764,7 @@ wheels = [
 
 [[package]]
 name = "mdcx"
-version = "1.3.6"
+version = "1.3.7"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
