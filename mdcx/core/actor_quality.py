@@ -3,6 +3,7 @@
 import re
 
 from ..config.resources import resources
+from ..manual import ManualConfig
 
 # Existing actor-search exclusions in core/amazon.py; keep exact-name matching.
 ACTOR_PLACEHOLDERS = frozenset({"未知演员", "未知演員", "女优不明", "女優不明", "人物不明"})
@@ -64,6 +65,8 @@ _SUREN_EXACT_NON_NAME_PHRASES = frozenset(
         "患者",
         "援交",
         "援交娘",
+        "円光",
+        "円光娘",
         "援助交际",
         "援助交際",
         "万引き娘",
@@ -71,7 +74,9 @@ _SUREN_EXACT_NON_NAME_PHRASES = frozenset(
         "年轻女子",
         "元読者モデル",
         "貧乳美女",
+        "贫乳美女",
         "ギャル２人組",
+        "ギャル２人组",
         "不明",
         "匿名",
         "未確認",
@@ -106,9 +111,12 @@ _SUREN_ALWAYS_NON_NAME_SUBSTRINGS = (
     "名譽",
     "名誉",
     "複数",
+    "复数",
+    "複數",
     "多数",
     "多數",
     "人組",
+    "人组",
     "データ",
     "エラー",
     "削除",
@@ -126,6 +134,18 @@ _SUREN_ALWAYS_NON_NAME_SUBSTRINGS = (
     "未知女优",
     "読者モデル",
     "貧乳",
+    "贫乳",
+    "円光",
+    "万引き",
+    "患者",
+    "本妻",
+    "奥様",
+    "素人娘",
+    "素人妻",
+    "素人少女",
+    "素人奥様",
+    "S級素人",
+    "S级素人",
 )
 
 SUREN_NON_NAME_WORDS = (
@@ -137,6 +157,7 @@ SUREN_NON_NAME_WORDS = (
     "男优",
     "素人",
     "人妻",
+    "夫妻",
     "主婦",
     "若妻",
     "新妻",
@@ -312,6 +333,10 @@ SUREN_NON_NAME_WORDS = (
     "美乳",
     "貧乳",
     "美巨乳",
+    "貧乳",
+    "贫乳",
+    "円光",
+    "援交",
     "スレンダー",
     "ドM",
     "ドS",
@@ -340,33 +365,57 @@ SUREN_NON_NAME_WORDS = (
 def _has_suren_disqualifying_marker(name: str) -> bool:
     if name in ACTOR_PLACEHOLDERS or name.upper() in _SUREN_EXACT_NON_NAME_PHRASES:
         return True
+    stripped_at = name.lstrip("@＠")
+    if stripped_at and stripped_at.upper() in _SUREN_EXACT_NON_NAME_PHRASES:
+        return True
     if _SUREN_BRACKET_RE.search(name):
         return True
     if _SUREN_DIGIT_AGE_RE.search(name) or _SUREN_KANJI_AGE_RE.search(name):
         return True
     if any(_SUREN_HONORIFIC_SUFFIX_RE.search(part) for part in name.split()):
         return True
+    if _SUREN_ASCII_NON_NAME_RE.search(name):
+        return True
     return any(word in name for word in _SUREN_ALWAYS_NON_NAME_SUBSTRINGS)
 
 
+def _normalize_mapping_lookup(value: str) -> str:
+    normalized = value.strip().upper()
+    for full_char, half_char in ManualConfig.FULL_HALF_CHAR:
+        normalized = normalized.replace(full_char, half_char)
+    return normalized
+
+
+def _has_suren_description_word(name: str, *, allow_suren_stage_word: bool = False) -> bool:
+    for word in SUREN_NON_NAME_WORDS:
+        if allow_suren_stage_word and word == "素人":
+            continue
+        if word in name:
+            return True
+    return False
+
+
 def _mapping_actor_trust(name: str) -> bool | None:
-    """Return True for a trusted mapping entry, False for a known FC seller, or None if unmapped."""
+    """Return True only for a non-FC-seller @jp main name, False for a known FC seller, or None otherwise."""
     xml_actor = getattr(resources, "actor_mapping_data", None)
     if xml_actor is None or len(xml_actor) == 0:
         return None
-    actor_data = resources.get_actor_data(name)
-    if actor_data.get("has_name"):
-        keywords = actor_data.get("keyword") or []
-        return "【FC卖家】" not in keywords
-    # Fallback for full-width punctuation in @jp/@zh_cn/@zh_tw/@keyword that resources.get_actor_data normalizes only on input.
-    exact_nodes = xml_actor.xpath(
-        "//a[@jp=$name or @zh_cn=$name or @zh_tw=$name or contains(@keyword, $kw)]",
-        name=name,
-        kw=f",{name},",
-    )
-    if not exact_nodes:
+    normalized_name = _normalize_mapping_lookup(name)
+    for fc_node in xml_actor.xpath("//a[contains(@keyword, '【FC卖家】')]"):
+        candidates = [
+            fc_node.get("jp") or "",
+            fc_node.get("zh_cn") or "",
+            fc_node.get("zh_tw") or "",
+            *(fc_node.get("keyword") or "").split(","),
+        ]
+        for candidate in candidates:
+            item = candidate.strip()
+            if item and (item == name or _normalize_mapping_lookup(item) == normalized_name):
+                return False
+    jp_nodes = xml_actor.xpath("//a[@jp=$name]", name=name)
+    if not jp_nodes:
         return None
-    return "【FC卖家】" not in (exact_nodes[0].get("keyword") or "")
+    return True
 
 
 def is_pure_suren_actor(actor: str) -> bool:
@@ -379,13 +428,13 @@ def is_pure_suren_actor(actor: str) -> bool:
     if _has_suren_disqualifying_marker(name):
         return False
     mapping_trust = _mapping_actor_trust(name)
-    if mapping_trust is not None:
-        return mapping_trust
+    if mapping_trust is False:
+        return False
+    if mapping_trust is True:
+        return not _has_suren_description_word(name, allow_suren_stage_word=True)
     if not _SUREN_PURE_NAME_RE.fullmatch(name):
         return False
-    if _SUREN_ASCII_NON_NAME_RE.search(name):
-        return False
-    return not any(word in name for word in SUREN_NON_NAME_WORDS)
+    return not _has_suren_description_word(name, allow_suren_stage_word=False)
 
 
 def valid_actor_names(actors):

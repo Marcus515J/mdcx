@@ -1302,3 +1302,235 @@ async def test_suren_avwiki_rescue_overwrites_all_actors_and_sources_consistentl
         assert res.field_sources[CrawlerResultFields.ALL_ACTORS] == "av-wiki"
     finally:
         LogBuffer.clear_task()
+
+
+def test_suren_mapping_trust_restricted_to_jp_main_name_only(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    _install_mock_actor_mapping(
+        monkeypatch,
+        """
+        <actor>
+          <a zh_cn="素人" zh_tw="素人" jp="素人" keyword=",C級素人初撮り,素人,素人 仮病娘,素人 患者," />
+          <a zh_cn="素人妻" zh_tw="素人妻" jp="素人妻" keyword=",清楚な人妻,素人妻," />
+          <a zh_cn="素人(援交)" zh_tw="素人(円光娘)" jp="素人(円光娘)" keyword=",円光娘,素人(円光娘)," />
+          <a zh_cn="素人(多人)" zh_tw="素人(多人)" jp="素人(多人)" keyword=",複数の素人娘,素人娘達,素人娘达,素人(多人)," />
+          <a zh_cn="ギャル２人组" zh_tw="ギャル２人組" jp="ギャル２人組" keyword=",ギャル２人組,ギャル２人组," />
+          <a zh_cn="贫乳美女" zh_tw="貧乳美女" jp="貧乳美女" keyword=",貧乳美女,贫乳美女," />
+          <a zh_cn="某所 某夫妻" zh_tw="某所 某夫妻" jp="某所 某夫妻" keyword=",某所 某夫妻," />
+          <a zh_cn="素人测试" zh_tw="素人測試" jp="素人テスト" keyword=",素人テスト,素人测试," />
+          <a zh_cn="桜庭测试" zh_tw="桜庭測試" jp="桜庭テスト" keyword=",@ALIAS_ONLY,SAMPLE.,桜庭テスト," />
+          <a zh_cn="Sample." zh_tw="Sample." jp="Sample." keyword=",Sample.,SAMPLE.," />
+          <a zh_cn="@SAMPLE" zh_tw="@SAMPLE" jp="@SAMPLE" keyword=",@SAMPLE," />
+          <a zh_cn="素人大学生" zh_tw="素人大学生" jp="素人大学生" keyword=",素人大学生," />
+          <a zh_cn="素人25歳" zh_tw="素人25歳" jp="素人25歳" keyword=",素人25歳," />
+          <a zh_cn="素人さん" zh_tw="素人さん" jp="素人さん" keyword=",素人さん," />
+          <a zh_cn="素人貧乳" zh_tw="素人貧乳" jp="素人貧乳" keyword=",素人貧乳," />
+          <a zh_cn="素人娘テスト" zh_tw="素人娘テスト" jp="素人娘テスト" keyword=",素人娘テスト," />
+          <a zh_cn="@大学生" zh_tw="@大学生" jp="@大学生" keyword=",@大学生," />
+          <a zh_cn="@人妻" zh_tw="@人妻" jp="@人妻" keyword=",@人妻," />
+          <a zh_cn="@テストさん" zh_tw="@テストさん" jp="@テストさん" keyword=",@テストさん," />
+          <a zh_cn="@素人" zh_tw="@素人" jp="@素人" keyword=",@素人," />
+          <a zh_cn="卖家样本" zh_tw="賣家樣本" jp="テスト企画" keyword=",テスト企画,テストキング,【FC卖家】," />
+        </actor>
+        """,
+    )
+
+    # Only @jp main names without disqualifying markers or description words are trusted.
+    for valid_main in ("素人テスト", "Sample.", "@SAMPLE", "桜庭テスト"):
+        assert is_pure_suren_actor(valid_main) is True, f"valid main name should pass: {valid_main}"
+
+    # Aliases/keywords and Chinese translations never receive mapping-table trust.
+    for untrusted_alias in (
+        "C級素人初撮り",
+        "清楚な人妻",
+        "円光娘",
+        "素人 仮病娘",
+        "素人 患者",
+        "複数の素人娘",
+        "素人娘達",
+        "素人娘达",
+        "ギャル２人组",
+        "贫乳美女",
+        "素人测试",
+        "@ALIAS_ONLY",
+        "SAMPLE.",
+    ):
+        assert is_pure_suren_actor(untrusted_alias) is False, f"alias/keyword must be rejected: {untrusted_alias}"
+
+    # Even @jp main names containing age, honorifics, description words, or FC seller tag are rejected.
+    for disqualified_main in (
+        "某所 某夫妻",
+        "素人大学生",
+        "素人25歳",
+        "素人さん",
+        "素人貧乳",
+        "素人娘テスト",
+        "@大学生",
+        "@人妻",
+        "@テストさん",
+        "@素人",
+        "テスト企画",
+        "テストキング",
+    ):
+        assert is_pure_suren_actor(disqualified_main) is False, f"disqualified entry must fail: {disqualified_main}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "dirty_alias",
+    [
+        "C級素人初撮り",
+        "清楚な人妻",
+        "円光娘",
+        "素人 仮病娘",
+        "素人 患者",
+    ],
+)
+async def test_suren_descriptive_mapping_aliases_defer_and_hold_instead_of_falling_back(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    dirty_alias: str,
+):
+    from mdcx.core import scraper as scraper_module
+    from mdcx.core import translate as translate_module
+    from mdcx.core import utils as utils_module
+
+    _install_mock_actor_mapping(
+        monkeypatch,
+        """
+        <actor>
+          <a zh_cn="素人" zh_tw="素人" jp="素人" keyword=",C級素人初撮り,素人,素人 仮病娘,素人 患者," />
+          <a zh_cn="素人妻" zh_tw="素人妻" jp="素人妻" keyword=",清楚な人妻,素人妻," />
+          <a zh_cn="素人(援交)" zh_tw="素人(円光娘)" jp="素人(円光娘)" keyword=",円光娘,素人(円光娘)," />
+        </actor>
+        """,
+    )
+
+    sites = [Website.MGSTAGE, Website.DMM]
+    config = _make_suren_config(sites=sites, score_sites=[Website.DMM])
+    config.actor_realname = True
+    config.get_field_config(CrawlerResultFields.ACTORS).translate = True
+    config.get_field_config(CrawlerResultFields.ACTORS).language = Language.JP
+    config.get_field_config(CrawlerResultFields.ALL_ACTORS).translate = True
+    config.get_field_config(CrawlerResultFields.ALL_ACTORS).language = Language.JP
+    monkeypatch.setattr(scraper_module, "manager", SimpleNamespace(config=config))
+    monkeypatch.setattr(translate_module, "manager", SimpleNamespace(config=config))
+    monkeypatch.setattr(utils_module, "manager", SimpleNamespace(config=config))
+    avwiki_mock = AsyncMock(return_value=(False, "No Result!"))
+    monkeypatch.setattr(translate_module, "get_actorname", avwiki_mock)
+    Flags.reset()
+    LogBuffer.clear_task()
+    scraper_module.signal.stop = False
+
+    movie_path = tmp_path / "999TEST-020.mp4"
+    movie_path.write_bytes(b"original")
+    info = FileInfo.empty()
+    info.number = "999TEST-020"
+    info.file_path = movie_path
+    info.folder_path = tmp_path
+
+    async def check(*_args):
+        return True
+
+    monkeypatch.setattr(scraper_module, "check_file", check)
+    monkeypatch.setattr(
+        scraper_module,
+        "get_movie_path_setting",
+        lambda *_args: SimpleNamespace(success_folder=tmp_path / "output", movie_path=tmp_path),
+    )
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("descriptive mapping alias must not enter output")
+
+    for name in ("get_output_name", "creat_folder", "write_nfo", "move_movie"):
+        monkeypatch.setattr(scraper_module, name, forbidden)
+
+    records: list[Website] = []
+    provider = _RecordingProvider(
+        {
+            Website.MGSTAGE: _RecordingCrawler(
+                Website.MGSTAGE,
+                records,
+                _make_result(
+                    Website.MGSTAGE,
+                    title="テスト作品",
+                    actors=[dirty_alias],
+                    all_actors=[dirty_alias],
+                    thumb="https://example.test/thumb.jpg",
+                ),
+            ),
+            Website.DMM: _RecordingCrawler(
+                Website.DMM,
+                records,
+                _make_result(
+                    Website.DMM,
+                    actors=["白石ゆいさん"],
+                    all_actors=["白石ゆいさん"],
+                    score="4.0",
+                    score_max="5",
+                ),
+            ),
+        }
+    )
+
+    try:
+        scraper = scraper_module.Scraper(provider)
+        with pytest.raises(QualityDeferred):
+            await scraper._process_one_file(info, FileMode.Default)
+        scraper._quality_retrying = True
+        with pytest.raises(QualityHeld, match="留原地：actors"):
+            await scraper._process_one_file(info, FileMode.Default)
+        assert avwiki_mock.await_count == 1
+    finally:
+        LogBuffer.clear_task()
+
+
+@pytest.mark.asyncio
+async def test_suren_mapping_drops_when_both_pre_and_post_fail_and_keeps_valid_jp_stage_name(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    from mdcx.core import translate as translate_module
+    from mdcx.models.types import CrawlersResult
+
+    _install_mock_actor_mapping(
+        monkeypatch,
+        """
+        <actor>
+          <a zh_cn="素人" zh_tw="素人" jp="素人" keyword=",C級素人初撮り,素人," />
+          <a zh_cn="素人测试" zh_tw="素人測試" jp="素人テスト" keyword=",素人テスト,素人测试," />
+        </actor>
+        """,
+    )
+    config = _make_suren_config()
+    config.actor_realname = False
+    config.get_field_config(CrawlerResultFields.ACTORS).translate = True
+    config.get_field_config(CrawlerResultFields.ACTORS).language = Language.ZH_CN
+    config.get_field_config(CrawlerResultFields.ALL_ACTORS).translate = True
+    config.get_field_config(CrawlerResultFields.ALL_ACTORS).language = Language.ZH_CN
+    monkeypatch.setattr(translate_module, "manager", SimpleNamespace(config=config))
+    LogBuffer.clear_task()
+
+    try:
+        # Both pre-mapping alias and post-mapping main name are impure -> must drop, never keep pre-mapping dirty alias.
+        dirty_res = CrawlersResult.empty()
+        dirty_res.number = "999TEST-021"
+        dirty_res.scraping_type = FixedScrapingType.SUREN
+        dirty_res.actors = ["C級素人初撮り"]
+        dirty_res.all_actors = ["C級素人初撮り"]
+        await translate_module.translate_actor(dirty_res)
+        assert dirty_res.actors == []
+        assert dirty_res.all_actors == []
+
+        # Valid @jp stage name whose zh_cn translation contains "素人" (untrusted) keeps pre-mapping @jp name.
+        valid_res = CrawlersResult.empty()
+        valid_res.number = "999TEST-022"
+        valid_res.scraping_type = FixedScrapingType.SUREN
+        valid_res.actors = ["素人テスト"]
+        valid_res.all_actors = ["素人テスト"]
+        await translate_module.translate_actor(valid_res)
+        assert valid_res.actors == ["素人テスト"]
+        assert valid_res.all_actors == ["素人テスト"]
+        assert "保留映射前名字" in LogBuffer.log().get()
+    finally:
+        LogBuffer.clear_task()
