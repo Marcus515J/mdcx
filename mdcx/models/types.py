@@ -54,6 +54,8 @@ class FileInfo:
 
     definition: str
     codec: str
+    evaluation_suffix: str = ""
+    evaluation_unknown_words: tuple[str, ...] = ()
     umr_stage: str = ""  # 仅供命名使用，不改变破解分类或字幕状态
 
     @property

@@ -2,6 +2,7 @@ import asyncio
 import copy as copy_module
 import time
 import traceback
+from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -44,7 +45,7 @@ from ..utils import executor, get_current_time, get_real_time, get_used_time, sp
 from ..utils.dataclass import update
 from ..utils.file import copy_file_async, move_file_async
 from ..utils.path import is_any_descendant
-from .file import creat_folder, deal_old_files, get_file_info_v2, get_output_name, move_movie
+from .file import creat_folder, deal_old_files, get_file_info_v2, get_output_name, move_movie, parse_evaluation_suffix
 from .file_crawler import FileScraper, classify_existing_scrape_result, classify_scrape_task
 from .image import add_mark
 from .media_resource import MediaResourceContext
@@ -162,6 +163,7 @@ class Scraper:
         self._quality_locks: dict[str, asyncio.Lock] = {}
         self._quality_resolved: dict[str, tuple] = {}
         self._quality_summaries: list[str] = []
+        self._evaluation_held: dict[Path, tuple[str, ...]] = {}
         self._quality_completed_attempts = 0
         self._retry_display_done = 0
         self._suren_avwiki_cache: dict[str, AvwikiActorQueryResult] = {}
@@ -270,6 +272,7 @@ class Scraper:
 
     async def _run_batch(self, file_mode: FileMode, movie_list: list[Path] | None) -> None:
         Flags.reset()
+        self._evaluation_held.clear()
         self._quality_pending.clear()
         self._quality_by_number.clear()
         self._quality_first.clear()
@@ -379,6 +382,14 @@ class Scraper:
                     signal.show_log_text("\n📋 刮削质量摘要\n" + "\n".join(self._quality_summaries))
                 batch_completed = not (signal.stop or Flags.stop_requested) and Flags.scrape_done >= task_count
             finally:
+                if self._evaluation_held:
+                    signal.show_log_text(
+                        "\n📋 评价后缀待检查（留原地）\n"
+                        + "\n".join(
+                            f"{escape(str(path))}：{escape(' '.join(words))}"
+                            for path, words in self._evaluation_held.items()
+                        )
+                    )
                 if (batch := batch_diagnostics.get()) is not None:
                     signal.show_log_text("\n" + "\n".join(batch.lines(incomplete=not batch_completed)))
             if Flags.scrape_done < task_count and not (signal.stop or Flags.stop_requested):
@@ -457,6 +468,19 @@ class Scraper:
         self._check_stop("开始处理")
         # Explicit/resumed tasks also bypass site search for quarantined or matched files.
         file_path, count, count_all = task
+        _, _, unknown_words = parse_evaluation_suffix(file_path.stem)
+        if unknown_words:
+            self._evaluation_held[file_path] = unknown_words
+            signal.show_log_text(
+                f'<font color="red"> 🔴 评价后缀含词表外的词：{escape(" ".join(unknown_words))} — {escape(str(file_path))}</font>'
+            )
+            Flags.counting_order += 1
+            Flags.scrape_starting += 1
+            Flags.scrape_started += 1
+            Flags.scrape_done += 1
+            Flags.scrape_processed += 1
+            self._show_progress(count_all)
+            return
         if _is_garbage_directory(file_path.parent) or (
             manager.config.garbage_enabled
             and await asyncio.to_thread(

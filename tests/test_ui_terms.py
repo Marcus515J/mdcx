@@ -326,3 +326,40 @@ def test_site_wall_timeout_ui_terms_and_generated_control():
         assert grid.height() >= grid.layout().sizeHint().height()
     finally:
         window.close()
+
+
+def test_evaluation_suffix_control_and_acceptance_terms(tmp_path):
+    from PyQt6.QtWidgets import QApplication, QMainWindow
+
+    from mdcx.config.models import Config
+    from mdcx.views.MDCx import Ui_MDCx
+
+    root = ET.parse("mdcx/views/MDCx.ui").getroot()
+    texts = [node.text or "" for node in root.iter("string")]
+    for term in ("设置", "命名", "马赛克命名规则", "评价后缀词表", "保存"):
+        assert any(term in text for text in texts)
+    app = QApplication.instance() or QApplication([])
+    window = QMainWindow()
+    ui = Ui_MDCx()
+    try:
+        ui.setupUi(window)
+        control = ui.lineEdit_evaluation_suffix_words
+        assert ui.label_evaluation_suffix_words.text() == "评价后缀词表："
+        assert control.text() == ""
+        assert control.parentWidget() == ui.lineEdit_umr_style.parentWidget()
+        assert control.geometry().height() == ui.lineEdit_umr_style.geometry().height() == 30
+        assert control.x() == ui.lineEdit_umr_style.x()
+        assert control.geometry().bottom() < ui.label_116.y()
+        # Temporary configuration only: preserve the text exactly across serialization/reopening.
+        control.setText("  demo sample  ")
+        cfg = Config(evaluation_suffix_words=control.text())
+        config_path = tmp_path / "settings.json"
+        config_path.write_text(cfg.model_dump_json())
+        reopened = Config.model_validate_json(config_path.read_text())
+        control.clear()
+        control.setText(reopened.evaluation_suffix_words)
+        assert control.text() == "  demo sample  "
+        window.show()
+        app.processEvents()
+    finally:
+        window.close()

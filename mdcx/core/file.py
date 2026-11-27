@@ -232,6 +232,38 @@ async def move_movie(other: OtherInfo, file_info: FileInfo, file_path: Path, fil
         return False
 
 
+def parse_evaluation_suffix(file_name: str) -> tuple[str, str, tuple[str, ...]]:
+    """解析原主名，保留分段号供既有识别逻辑使用。"""
+    words = set(manager.config.evaluation_suffix_words.strip().split())
+    if not words:
+        return file_name, "", ()
+    stem = file_name
+    cd = ""
+    match = re.search(r"[-_ .](?:cd|part|hd)([0-9]{1,2})$|-([0-9]{1,2})$", stem, re.I)
+    if match:
+        digits = match[1] or match[2]
+        if int(digits) > 0 and (match[1] or len(digits) == 1 or CDChar.DIGITAL in manager.config.cd_char):
+            cd = match[0]
+            stem = stem[: match.start()]
+    if " " not in stem or "-" not in stem:
+        return file_name, "", ()
+    parts = stem.split("-")
+    last_words = parts[-1].split()
+    unknown = tuple(dict.fromkeys(word for word in last_words if word not in words))
+    if unknown and any(word in words for word in last_words):
+        return file_name, "", unknown
+    suffix_parts = []
+    while len(parts) > 1:
+        tokens = parts[-1].split()
+        if not tokens or any(word not in words for word in tokens):
+            break
+        suffix_parts.insert(0, " ".join(tokens))
+        parts.pop()
+    if not suffix_parts:
+        return file_name, "", ()
+    return "-".join(parts) + cd, "-" + "-".join(suffix_parts), ()
+
+
 def _get_folder_path(success_folder: Path, file_info: FileInfo, res: CrawlersResult) -> tuple[Path, str]:
     folder_name: str = manager.config.folder_name.replace("\\", "/")  # 设置-命名-视频目录名
     folder_path = file_info.file_path.parent
@@ -275,10 +307,11 @@ def _get_folder_path(success_folder: Path, file_info: FileInfo, res: CrawlersRes
             show_definition_suffix=manager.config.folder_hd,
             show_cnword_suffix=manager.config.folder_cnword,
             show_moword_suffix=manager.config.folder_moword,
-            max_length=folder_name_max,
+            max_length=max(1, folder_name_max - len(file_info.evaluation_suffix)),
+            preserved_suffix=file_info.evaluation_suffix,
         ),
     )
-    folder_new_name = result.text
+    folder_new_name = result.text + file_info.evaluation_suffix
     if result.truncated_fields:
         fields = "、".join(FIELD_DESCRIPTIONS.get(field, field) for field in result.truncated_fields)
         LogBuffer.log().write(f"\n 💡 当前目录名超过最大长度 {folder_name_max}，已智能缩短：{fields}")
@@ -304,7 +337,7 @@ def _generate_file_name(cd_part, file_info: FileInfo, res: CrawlersResult) -> st
 
     file_name_max = int(manager.config.file_name_max)
     max_total_basename_length = max(1, file_name_max - len(file_ex))
-    render_max_length = max(1, max_total_basename_length - len(cd_part))
+    render_max_length = max(1, max_total_basename_length - len(cd_part) - len(file_info.evaluation_suffix))
     result = render_name(
         file_name_template,
         file_info,
@@ -315,23 +348,28 @@ def _generate_file_name(cd_part, file_info: FileInfo, res: CrawlersResult) -> st
             show_cnword_suffix=manager.config.file_cnword,
             show_moword_suffix=manager.config.file_moword,
             max_length=render_max_length,
+            preserved_suffix=file_info.evaluation_suffix,
         ),
     )
     file_name = result.text
 
-    file_name += cd_part
+    if not file_info.evaluation_suffix:
+        file_name += cd_part
 
     # 插入防屏蔽字符（115）
     prevent_char = manager.config.prevent_char
     if prevent_char:
         file_char_list = list(file_name)
         file_name = prevent_char.join(file_char_list)
-        if len(file_name) > max_total_basename_length:
-            file_name = file_name[:max_total_basename_length].rstrip(" ,，、;；:：._+-")
+        limit = render_max_length if file_info.evaluation_suffix else max_total_basename_length
+        if len(file_name) > limit:
+            file_name = file_name[:limit].rstrip(" ,，、;；:：._+-")
     if result.truncated_fields:
         fields = "、".join(FIELD_DESCRIPTIONS.get(field, field) for field in result.truncated_fields)
         LogBuffer.log().write(f"\n 💡 当前文件名超过最大长度 {file_name_max}，已智能缩短：{fields}")
 
+    if file_info.evaluation_suffix:
+        file_name += file_info.evaluation_suffix + cd_part
     return file_name
 
 
@@ -414,7 +452,8 @@ async def get_file_info_v2(file_path: Path, copy_sub: bool = True) -> FileInfo:
     # 获取文件名
     folder_path, file_full_name = split_path(file_path)  # 获取去掉文件名的路径、完整文件名（含扩展名）
     file_name, file_ex = os.path.splitext(file_full_name)  # 获取文件名（不含扩展名）、扩展名(含有.)
-    file_name_temp = file_name + "."
+    evaluation_base, evaluation_suffix, evaluation_unknown_words = parse_evaluation_suffix(file_name)
+    file_name_temp = evaluation_base + "."
     nfo_old_name = file_name + ".nfo"
     nfo_old_path = folder_path / nfo_old_name
     file_show_name = file_name
@@ -430,6 +469,11 @@ async def get_file_info_v2(file_path: Path, copy_sub: bool = True) -> FileInfo:
             file_path_str = str(file_path).replace(prevent_char, "")
             file_name = file_name.replace(prevent_char, "")
 
+        if evaluation_suffix:
+            file_path_str = str(folder_path / (evaluation_base + file_ex)).replace("\\", "/")
+            if prevent_char:
+                file_path_str = file_path_str.replace(prevent_char, "")
+
         # 获取番号
         if not movie_number:
             movie_number = get_file_number(file_path_str, manager.computed.escape_string_list)
@@ -439,7 +483,12 @@ async def get_file_info_v2(file_path: Path, copy_sub: bool = True) -> FileInfo:
         optional_data["short_number"] = temp_n[0] if temp_n else ""
 
         umr_style = str(manager.config.umr_style)
-        umr_stage, stage_has_sub, file_name_cd = _get_umr_stage(file_name, movie_number, umr_style, cnword_style)
+        umr_stage, stage_has_sub, file_name_cd = _get_umr_stage(
+            evaluation_base.replace(prevent_char, "") if prevent_char else evaluation_base,
+            movie_number,
+            umr_style,
+            cnword_style,
+        )
 
         # 去掉各种乱七八糟的字符
         file_name_cd = remove_escape_string(file_name_cd, "-").replace(movie_number, "-").replace("--", "-").strip()
@@ -497,7 +546,7 @@ async def get_file_info_v2(file_path: Path, copy_sub: bool = True) -> FileInfo:
             or "破解" in file_path_str
             or "克破" in file_path_str
             or (umr_style_lower and umr_style_lower in file_path_lower)
-            or _has_umr_suffix_marker(file_name, movie_number)
+            or _has_umr_suffix_marker(evaluation_base if evaluation_suffix else file_name, movie_number)
             or umr_stage
         ):
             destroyed = umr_style
@@ -702,7 +751,7 @@ async def get_file_info_v2(file_path: Path, copy_sub: bool = True) -> FileInfo:
         mosaic=mosaic,
         file_path=Path(file_path),
         folder_path=folder_path,
-        file_name=file_name,
+        file_name=evaluation_base if evaluation_suffix else file_name,
         file_ex=file_ex,
         sub_list=sub_list,
         file_show_name=file_show_name,
@@ -714,6 +763,8 @@ async def get_file_info_v2(file_path: Path, copy_sub: bool = True) -> FileInfo:
         definition="",
         codec="",
         umr_stage=umr_stage,
+        evaluation_suffix=evaluation_suffix,
+        evaluation_unknown_words=evaluation_unknown_words,
     )
 
 

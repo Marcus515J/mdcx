@@ -619,6 +619,7 @@ def load_config(self: "MyMAinWindow"):
         # 后缀排序
         self.Ui.lineEdit_suffix_sort.setText(",".join([s.value for s in manager.config.suffix_sort]))
         # 版本命名规则-无码破解版
+        self.Ui.lineEdit_evaluation_suffix_words.setText(manager.config.evaluation_suffix_words)
         self.Ui.lineEdit_umr_style.setText(manager.config.umr_style)
         # 版本命名规则-无码流出版
         self.Ui.lineEdit_leak_style.setText(manager.config.leak_style)
