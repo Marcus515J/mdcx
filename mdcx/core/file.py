@@ -620,18 +620,18 @@ async def get_file_info_v2(file_path: Path, copy_sub: bool = True) -> FileInfo:
         if "-C." in str(cnword_list).upper():
             cnword_list.append("-C ")
         sub_type_list = manager.config.sub_type  # 本地字幕后缀
+        subtitle_bases = [file_name]
+        if evaluation_suffix:
+            subtitle_bases = list(dict.fromkeys((file_path.stem, evaluation_base)))
         for sub_type in sub_type_list:  # 查找本地字幕, 可能多个
-            sub_type_chs = ".chs" + sub_type
-            sub_path_chs = folder_path / (file_name + sub_type_chs)
-            sub_path = folder_path / (file_name + sub_type)
-            if await aiofiles.os.path.exists(sub_path_chs):
-                sub_list.append(sub_type_chs)
-                c_word = cnword_style  # 中文字幕影片后缀
-                has_sub = True
-            if await aiofiles.os.path.exists(sub_path):
-                sub_list.append(sub_type)
-                c_word = cnword_style  # 中文字幕影片后缀
-                has_sub = True
+            for sub_suffix in (".chs" + sub_type, sub_type):
+                for subtitle_base in subtitle_bases:
+                    sub_path = folder_path / (subtitle_base + sub_suffix)
+                    if await aiofiles.os.path.exists(sub_path):
+                        sub_list.append(sub_suffix)
+                        c_word = cnword_style  # 中文字幕影片后缀
+                        has_sub = True
+                        break
             if file_ori_path:  # 原身路径
                 sub_path2 = file_ori_path.with_suffix(sub_type)
                 if await aiofiles.os.path.exists(sub_path2):

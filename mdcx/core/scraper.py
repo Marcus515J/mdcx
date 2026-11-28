@@ -1225,7 +1225,14 @@ class Scraper:
 
         # 移动字幕、种子、bif、trailer、其他文件
         if file_info.has_sub:
-            await move_sub(folder_old_path, folder_new_path, file_name, sub_list, naming_rule)
+            await move_sub(
+                folder_old_path,
+                folder_new_path,
+                file_info.file_path.stem if file_info.evaluation_suffix else file_name,
+                sub_list,
+                naming_rule,
+                alternate_file_name=file_name if file_info.evaluation_suffix else "",
+            )
         await move_torrent(folder_old_path, folder_new_path, file_name, movie_number, naming_rule)
         await move_bif(folder_old_path, folder_new_path, file_name, naming_rule)
         # self.move_trailer_video(folder_old_path, folder_new_path, file_name, naming_rule)
@@ -1360,6 +1367,7 @@ async def move_sub(
     file_name: str,
     sub_list: list[str],
     naming_rule: str,
+    alternate_file_name: str = "",
 ) -> None:
     copy_flag = False
 
@@ -1376,18 +1384,20 @@ async def move_sub(
     elif not manager.config.success_file_move and not manager.config.success_file_rename:
         return
 
+    subtitle_bases = list(dict.fromkeys(base for base in (file_name, alternate_file_name) if base))
     for sub in sub_list:
-        sub_old_path = str(folder_old_path / (file_name + sub))
-        sub_new_path = str(folder_new_path / (naming_rule + sub))
-        sub_new_path_chs = str(folder_new_path / (naming_rule + ".chs" + sub))
-        if manager.config.subtitle_add_chs and ".chs" not in sub:
-            sub_new_path = sub_new_path_chs
-        if await aiofiles.os.path.exists(sub_old_path) and not await aiofiles.os.path.exists(sub_new_path):
-            if copy_flag:
-                if not await copy_file_async(sub_old_path, sub_new_path):
-                    LogBuffer.log().write("\n 🔴 Sub copy failed!")
+        for subtitle_base in subtitle_bases:
+            sub_old_path = str(folder_old_path / (subtitle_base + sub))
+            sub_new_path = str(folder_new_path / (naming_rule + sub))
+            sub_new_path_chs = str(folder_new_path / (naming_rule + ".chs" + sub))
+            if manager.config.subtitle_add_chs and ".chs" not in sub:
+                sub_new_path = sub_new_path_chs
+            if await aiofiles.os.path.exists(sub_old_path) and not await aiofiles.os.path.exists(sub_new_path):
+                if copy_flag:
+                    if not await copy_file_async(sub_old_path, sub_new_path):
+                        LogBuffer.log().write("\n 🔴 Sub copy failed!")
+                        return
+                elif not await move_file_async(sub_old_path, sub_new_path):
+                    LogBuffer.log().write("\n 🔴 Sub move failed!")
                     return
-            elif not await move_file_async(sub_old_path, sub_new_path):
-                LogBuffer.log().write("\n 🔴 Sub move failed!")
-                return
-        LogBuffer.log().write("\n 🍀 Sub done!")
+            LogBuffer.log().write("\n 🍀 Sub done!")

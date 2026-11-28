@@ -429,3 +429,89 @@ def test_folder_suffix_only_for_final_title_template(monkeypatch, template, has_
     assert len(name) <= 60
     if not has_suffix:
         assert info.evaluation_suffix not in folder.name
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("with_suffix", [True, False])
+@pytest.mark.parametrize("part", ["", "-cd2", "-2"])
+@pytest.mark.parametrize("subtitle_suffix", [".srt", ".chs.ass"])
+async def test_evaluation_subtitles_follow_movie_name(tmp_path, monkeypatch, with_suffix, part, subtitle_suffix):
+    from mdcx.core.scraper import move_sub
+
+    monkeypatch.setattr(manager.config, "sub_type", [".srt", ".ass"])
+    monkeypatch.setattr(manager.config, "subtitle_add_chs", False)
+    path = tmp_path / f"TEST-123 title-good nice{part}.mp4"
+    subtitle_base = f"TEST-123 title{'-good nice' if with_suffix else ''}{part}"
+    subtitle = tmp_path / (subtitle_base + subtitle_suffix)
+    subtitle.write_text("temporary subtitle", encoding="utf-8")
+    unrelated = tmp_path / ("prefix-" + subtitle_base + subtitle_suffix)
+    unrelated.write_text("unrelated subtitle", encoding="utf-8")
+    info = await get_file_info_v2(path, copy_sub=False)
+    assert info.has_sub
+    assert info.sub_list == [subtitle_suffix]
+    assert info.cd_part == ("-cd2" if part else "")
+    data = CrawlersResult.empty()
+    data.number, data.title = info.number, "new title"
+    naming_rule = _generate_file_name(info.cd_part, info, data)
+    assert naming_rule == f"TEST-123 new title-good nice{info.cd_part}"
+    output = tmp_path / "output"
+    output.mkdir()
+    await move_sub(
+        tmp_path, output, info.file_path.stem, info.sub_list, naming_rule, alternate_file_name=info.file_name
+    )
+    assert (output / (naming_rule + subtitle_suffix)).read_text(encoding="utf-8") == "temporary subtitle"
+    assert not subtitle.exists()
+    assert unrelated.read_text(encoding="utf-8") == "unrelated subtitle"
+    assert len(list(output.iterdir())) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("words", ["", "good nice"])
+async def test_subtitle_matching_is_exact_and_empty_words_keep_original_behavior(tmp_path, monkeypatch, words):
+    from mdcx.core.scraper import move_sub
+
+    monkeypatch.setattr(manager.config, "evaluation_suffix_words", words)
+    monkeypatch.setattr(manager.config, "sub_type", [".srt", ".ass"])
+    monkeypatch.setattr(manager.config, "subtitle_add_chs", True)
+    path = tmp_path / "TEST-123 title-good nice.mp4"
+    # Contains the base but does not equal it, so it must never match.
+    unrelated = tmp_path / "TEST-123 title extended.srt"
+    unrelated.write_text("unrelated", encoding="utf-8")
+    stripped = tmp_path / "TEST-123 title.srt"
+    stripped.write_text("stripped", encoding="utf-8")
+    info = await get_file_info_v2(path, copy_sub=False)
+    assert info.has_sub is bool(words)
+    assert info.sub_list == ([".srt"] if words else [])
+    original = path.with_suffix(".ass")
+    original.write_text("original", encoding="utf-8")
+    info = await get_file_info_v2(path, copy_sub=False)
+    assert info.sub_list == ([".srt", ".ass"] if words else [".ass"])
+    data = CrawlersResult.empty()
+    data.number, data.title = info.number, "new title"
+    naming_rule = _generate_file_name(info.cd_part, info, data)
+    assert naming_rule == "TEST-123 new title" + ("-good nice" if words else "")
+    output = tmp_path / "output"
+    output.mkdir()
+    await move_sub(
+        tmp_path,
+        output,
+        info.file_path.stem if info.evaluation_suffix else info.file_name,
+        info.sub_list,
+        naming_rule,
+        alternate_file_name=info.file_name if info.evaluation_suffix else "",
+    )
+    assert (output / (naming_rule + ".chs.ass")).read_text(encoding="utf-8") == "original"
+    assert (output / (naming_rule + ".chs.srt")).exists() is bool(words)
+    assert stripped.exists() is (not bool(words))
+    assert unrelated.read_text(encoding="utf-8") == "unrelated"
+
+
+@pytest.mark.asyncio
+async def test_subtitle_containing_base_is_not_same_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(manager.config, "sub_type", [".srt"])
+    path = tmp_path / "TEST-123 title-good.mp4"
+    for stem in ("prefix-TEST-123 title", "TEST-123 title extended", "TEST-123 title-good extra"):
+        (tmp_path / (stem + ".srt")).write_text("unrelated", encoding="utf-8")
+    info = await get_file_info_v2(path, copy_sub=False)
+    assert not info.has_sub
+    assert info.sub_list == []
