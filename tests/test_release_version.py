@@ -56,8 +56,8 @@ def test_bump_synchronizes_sources_without_changing_dependencies(source, monkeyp
     monkeypatch.setattr(bump, "get_consts_file", lambda: source / "mdcx/consts.py")
     bump.update_version("v1.2.0")
     assert bump.get_current_version() == "v1.2.0"
-    assert tomllib.loads((source / "pyproject.toml").read_text())["project"]["version"] == "1.2.0"
-    packages = tomllib.loads((source / "uv.lock").read_text())["package"]
+    assert tomllib.loads((source / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"] == "1.2.0"
+    packages = tomllib.loads((source / "uv.lock").read_text(encoding="utf-8"))["package"]
     assert {p["name"]: p["version"] for p in packages} == {"mdcx": "1.2.0", "cffi": "2.0.0"}
 
 
@@ -67,7 +67,7 @@ def test_bump_invalid_metadata_does_not_partially_change_sources(source, monkeyp
     with pytest.raises(ValueError):
         bump.update_version("v1.2.0")
     assert bump.get_current_version() == "v1.1.0"
-    assert 'version = "1.1.0"' in (source / "pyproject.toml").read_text()
+    assert 'version = "1.1.0"' in (source / "pyproject.toml").read_text(encoding="utf-8")
 
 
 def test_build_rejects_display_version_mismatch_before_running_tools(source, monkeypatch):

@@ -298,6 +298,24 @@ def test_issue_40_acceptance_steps_ui_terms():
         assert root.find(f'.//*[@name="{name}"]') is not None
 
 
+def test_issue_225_naming_settings_ui_terms():
+    root = ET.parse("mdcx/views/MDCx.ui").getroot()
+    checks = [
+        ("pushButton_setting", "text", "设置"),
+        ("tab_3", "title", "命名"),
+        ("groupBox_46", "title", "马赛克命名规则"),
+        ("label_evaluation_suffix_words", "text", "评价后缀词表："),
+        ("pushButton_save_config", "text", "保存"),
+    ]
+    for name, prop, expected in checks:
+        node = root.find(f'.//*[@name="{name}"]')
+        assert node is not None, name
+        text = node.findtext(f'property[@name="{prop}"]/string')
+        if text is None:
+            text = node.findtext(f'attribute[@name="{prop}"]/string')
+        assert text is not None and text.strip() == expected, (name, text, expected)
+
+
 def test_site_wall_timeout_ui_terms_and_generated_control():
     from PyQt6.QtWidgets import QApplication, QMainWindow
 
@@ -368,8 +386,8 @@ def test_evaluation_suffix_control_and_acceptance_terms(tmp_path):
         control.setText("  demo sample  ")
         cfg = Config(evaluation_suffix_words=control.text())
         config_path = tmp_path / "settings.json"
-        config_path.write_text(cfg.model_dump_json())
-        reopened = Config.model_validate_json(config_path.read_text())
+        config_path.write_text(cfg.model_dump_json(), encoding="utf-8")
+        reopened = Config.model_validate_json(config_path.read_text(encoding="utf-8"))
         control.clear()
         control.setText(reopened.evaluation_suffix_words)
         assert control.text() == "  demo sample  "

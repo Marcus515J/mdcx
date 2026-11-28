@@ -34,7 +34,7 @@ def test_discovery_records_multiple_candidates_exclusions_and_literal_paths(tmp_
     )
     bad = tmp_path / "损坏"
     bad.mkdir()
-    (bad / "stage2_runtime.json").write_text("invalid")
+    (bad / "stage2_runtime.json").write_text("invalid", encoding="utf-8")
     (bad / "llama-server.exe").write_bytes(b"bad")
     result = local.discover([str(tmp_path)], excluded=(str(tmp_path / "私人隔离"),))
     assert result.servers[0] == a[0] and result.models[0] == a[1]
@@ -332,7 +332,7 @@ def test_early_exit_and_load_timeout_leave_no_child(service, monkeypatch, mode, 
         manager.start(server, model, [logs], timeout=5 if mode == "fail" else 1)
     assert not manager.owned and manager.process is None
     if mode == "fail":
-        assert "MOCK_DLL_FAILURE" in (manager.log_directory / "server-stderr.log").read_text()
+        assert "MOCK_DLL_FAILURE" in (manager.log_directory / "server-stderr.log").read_text(encoding="utf-8")
 
 
 def test_shutdown_during_load_cancels_and_closes_owned_child(service, monkeypatch):

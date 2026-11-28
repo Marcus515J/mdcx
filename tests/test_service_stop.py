@@ -238,7 +238,7 @@ async def test_service_stop_persists_remaining_files_and_continue_reuses_them(mo
     monkeypatch.setattr(scraper, "_run_batch", stopped_batch)
     try:
         await scraper._run(FileMode.Default, files)
-        persisted = (tmp_path / "remain.txt").read_text().splitlines()
+        persisted = (tmp_path / "remain.txt").read_text(encoding="utf-8").splitlines()
         assert set(persisted) == {str(path) for path in files}
         Flags.remain_list = []
         box = Mock()
