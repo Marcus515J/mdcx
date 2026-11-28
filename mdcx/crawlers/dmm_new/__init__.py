@@ -728,12 +728,16 @@ class DmmCrawler(GenericBaseCrawler[DMMContext]):
                 task_urls.append(url)
                 group.add(self.fetch_dmm_tv(ctx, url))
 
+            monthly_urls = d.get(Category.MONTHLY) or []
+            if monthly_urls:
+                # 旧 monthly 链接已 301 到新站 svod 页面，与旧站年龄确认页互相重定向成死循环，不再请求
+                ctx.debug(f"跳过 monthly 候选: {len(monthly_urls)} 个")
+
             for category in (
                 Category.DIGITAL,
                 Category.MONO,
                 Category.RENTAL,
                 Category.PRIME,
-                Category.MONTHLY,
             ):  # 优先级
                 parser = self._get_parser(category)
                 if parser is None:
