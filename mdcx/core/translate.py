@@ -325,6 +325,7 @@ def map_actor_names(res: CrawlersResult, all_actors=False):
     field_name = CrawlerResultFields.ALL_ACTORS if all_actors else CrawlerResultFields.ACTORS
     lang = manager.config.get_field_config(field_name).language
     is_suren = res.scraping_type == FixedScrapingType.SUREN
+    confirmed, _ = getattr(res, "_work_actor_credits", (set(), set()))
     # 查询映射表
     mapped = []
     for name in actors:
@@ -332,6 +333,11 @@ def map_actor_names(res: CrawlersResult, all_actors=False):
             continue
         actor_data = resources.get_actor_data(name)
         mapped_name = actor_data.get(lang)
+        if name in confirmed:
+            # Confirmed credits may use language variants only from their own jp main entry.
+            xml_actor = resources.actor_mapping_data
+            main_entries = xml_actor.xpath("//a[@jp=$name]", name=name) if xml_actor is not None else []
+            mapped_name = (main_entries[0].get(lang) or name) if main_entries else name
         if is_suren and not is_pure_suren_actor(mapped_name):
             if is_pure_suren_actor(name):
                 LogBuffer.log().write(

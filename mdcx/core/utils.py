@@ -15,6 +15,7 @@ from ..number import get_number_letters, strip_escape_strings
 from ..signals import signal
 from ..utils import get_used_time
 from ..utils.video import get_video_metadata
+from .actor_quality import confirm_work_actor_credits
 from .naming import NameRenderOptions, NamingTarget, render_name
 
 _ACTOR_SEPARATORS = " \u3000"  # 半角空格、全角空格
@@ -85,6 +86,7 @@ def replace_special_word(json_data: BaseCrawlerResult):
 
 
 def deal_some_field(json_data: CrawlersResult):
+    _, unresolved_credits = confirm_work_actor_credits(json_data)
     fields_rule = manager.config.fields_rule
     title = json_data.title
     originaltitle = json_data.originaltitle
@@ -101,7 +103,7 @@ def deal_some_field(json_data: CrawlersResult):
                 continue
             cleaned = re.findall(r"[^\(\)\（\）]+", raw_name)
             temp_actor_list.extend(cleaned)
-            if FieldRule.DEL_CHAR in fields_rule:
+            if FieldRule.DEL_CHAR in fields_rule and raw_name not in unresolved_credits:
                 json_data.actors.append(cleaned[0])
             else:
                 json_data.actors.append(raw_name)
@@ -113,7 +115,7 @@ def deal_some_field(json_data: CrawlersResult):
             if not raw_name:
                 continue
             cleaned = re.findall(r"[^\(\)\（\）]+", raw_name)
-            if FieldRule.DEL_CHAR in fields_rule:
+            if FieldRule.DEL_CHAR in fields_rule and raw_name not in unresolved_credits:
                 json_data.all_actors.append(cleaned[0])
             else:
                 json_data.all_actors.append(raw_name)
