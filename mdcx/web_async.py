@@ -23,7 +23,7 @@ import aiofiles.os
 import httpx
 from aiolimiter import AsyncLimiter
 from curl_cffi import AsyncSession, Response
-from curl_cffi.requests.exceptions import ConnectionError, ProxyError, RequestException, Timeout
+from curl_cffi.requests.exceptions import ConnectionError, ProxyError, RequestException, Timeout, TooManyRedirects
 from curl_cffi.requests.session import HttpMethod
 from curl_cffi.requests.utils import not_set
 from PIL import Image
@@ -2221,7 +2221,8 @@ class AsyncWebClient:
                 except RequestException as e:
                     proxy_transport_failure = bool(request_proxy) and isinstance(e, ProxyError)
                     error_msg = f"请求异常: {str(e)} {getattr(e, 'code', '')}".strip()
-                    retry = True  # 请求异常进行重试
+                    # curl 47（TooManyRedirects）：重定向已经成环，重试也走不出去，第一次就按最终失败返回
+                    retry = not isinstance(e, TooManyRedirects)
                     await self._record_transport_failure(error_msg, pool_key=pool_key)
                 except TimeoutError:
                     proxy_transport_failure = bool(request_proxy)
