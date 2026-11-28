@@ -349,7 +349,21 @@ def test_evaluation_suffix_control_and_acceptance_terms(tmp_path):
         assert control.parentWidget() == ui.lineEdit_umr_style.parentWidget()
         assert control.geometry().height() == ui.lineEdit_umr_style.geometry().height() == 30
         assert control.x() == ui.lineEdit_umr_style.x()
-        assert control.geometry().bottom() < ui.label_116.y()
+        help_text = "刮削改名时，原文件名末尾「-」后面全是这里的词，就保留到新文件名和文件夹名末尾。词之间用空格，大小写敏感；留空关闭。"
+        help_label = ui.label_evaluation_suffix_help
+        assert help_text in help_label.text()
+        assert any(help_text in text for text in texts)
+        assert ui.lineEdit_umr_style.geometry().bottom() < ui.label_116.y()
+        assert ui.label_116.geometry().bottom() < control.y()
+        assert control.geometry().bottom() < help_label.y()
+        assert help_label.geometry().bottom() < ui.lineEdit_leak_style.y()
+        assert ui.label_evaluation_suffix_words.y() - control.y() == ui.label_174.y() - ui.lineEdit_umr_style.y()
+        assert help_label.x() == ui.label_116.x() == ui.label_117.x()
+        assert help_label.width() == ui.label_116.width() == ui.label_117.width()
+        assert help_label.styleSheet() == ui.label_116.styleSheet() == ui.label_117.styleSheet()
+        assert help_label.font() == ui.label_116.font() == ui.label_117.font()
+        assert help_label.alignment() == ui.label_116.alignment() == ui.label_117.alignment()
+        assert help_label.wordWrap() == ui.label_116.wordWrap() == ui.label_117.wordWrap() is True
         # Temporary configuration only: preserve the text exactly across serialization/reopening.
         control.setText("  demo sample  ")
         cfg = Config(evaluation_suffix_words=control.text())
