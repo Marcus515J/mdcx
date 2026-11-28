@@ -29,6 +29,7 @@ from ..utils.path import showFilePath
 from .mosaic import normalize_mosaic
 from .naming import FIELD_DESCRIPTIONS, NameRenderOptions, NamingTarget, render_name
 from .naming.fields import get_version_suffixes
+from .naming.template import collect_template_fields
 
 _COMPACT_DEFINITION_REGEX = "|".join(("4K60FPS", "4KS", "8K", "4K"))
 _UMR_BOUNDARY_REGEX = rf"(?=(?:{_COMPACT_DEFINITION_REGEX}|[-_.\s\]\)]|$))"
@@ -297,6 +298,8 @@ def _get_folder_path(success_folder: Path, file_info: FileInfo, res: CrawlersRes
     if not folder_name:
         return success_folder, ""
 
+    has_title = bool(collect_template_fields(folder_name, last_path_segment=True) & {"title", "originaltitle"})
+    evaluation_suffix = file_info.evaluation_suffix if has_title else ""
     folder_name_max = int(manager.config.folder_name_max)
     result = render_name(
         folder_name,
@@ -307,11 +310,11 @@ def _get_folder_path(success_folder: Path, file_info: FileInfo, res: CrawlersRes
             show_definition_suffix=manager.config.folder_hd,
             show_cnword_suffix=manager.config.folder_cnword,
             show_moword_suffix=manager.config.folder_moword,
-            max_length=max(1, folder_name_max - len(file_info.evaluation_suffix)),
-            preserved_suffix=file_info.evaluation_suffix,
+            max_length=max(1, folder_name_max - len(evaluation_suffix)),
+            preserved_suffix=evaluation_suffix,
         ),
     )
-    folder_new_name = result.text + file_info.evaluation_suffix
+    folder_new_name = result.text + evaluation_suffix
     if result.truncated_fields:
         fields = "、".join(FIELD_DESCRIPTIONS.get(field, field) for field in result.truncated_fields)
         LogBuffer.log().write(f"\n 💡 当前目录名超过最大长度 {folder_name_max}，已智能缩短：{fields}")

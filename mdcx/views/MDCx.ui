@@ -11876,7 +11876,7 @@
                         <string notr="true">color: rgb(8, 128, 128);</string>
                       </property>
                       <property name="text">
-                        <string>&lt;p style='line-height:20px'&gt;刮削改名时，原文件名末尾「-」后面全是这里的词，就保留到新文件名和文件夹名末尾。词之间用空格，大小写敏感；留空关闭。&lt;/p&gt;</string>
+                        <string>&lt;p style='line-height:20px'&gt;刮削改名时，原文件名末尾「-」后面全是这里的词，就保留到新文件名末尾；文件夹名里有标题时也接在文件夹名末尾。词之间用空格，大小写敏感；留空关闭。&lt;/p&gt;</string>
                       </property>
                       <property name="alignment">
                         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>

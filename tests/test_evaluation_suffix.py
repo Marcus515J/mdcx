@@ -123,7 +123,7 @@ async def test_no_space_single_word_roundtrip(tmp_path, monkeypatch, mode):
     output = get_output_name(info, data, tmp_path / "output", ".mp4")
     assert output[1].name == "TEST-123-good.mp4"
     if mode in (1, 2):
-        assert output[0].name == "TEST-123-good"
+        assert output[0].name == "TEST-123"
     else:
         assert output[0] == info.file_path.parent
     again = await get_file_info_v2(output[1], copy_sub=False)
@@ -340,15 +340,18 @@ async def test_original_sidecars_still_read(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_batch_diagnostic_lists_held_files(tmp_path, monkeypatch):
+@pytest.mark.parametrize("success_count,fail_count", [(0, 0), (0, 1), (1, 0)])
+async def test_batch_diagnostic_lists_held_files(tmp_path, monkeypatch, success_count, fail_count):
     from mdcx.config.extend import MoviePathSetting
     from mdcx.core import scraper as module
 
     path = tmp_path / "ABC-123-good odd.mp4"
     path.write_bytes(b"temporary media")
     monkeypatch.setattr(module.signal, "stop", False)
-    logs = Mock()
+    logs, net, status = Mock(), Mock(), Mock()
     monkeypatch.setattr(module.signal, "show_log_text", logs)
+    monkeypatch.setattr(module.signal, "show_net_info", net)
+    monkeypatch.setattr(module.signal, "show_scrape_info", status)
     for key, value in {
         "garbage_enabled": False,
         "thread_number": 1,
@@ -372,9 +375,57 @@ async def test_batch_diagnostic_lists_held_files(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "save_success_list", AsyncMock())
     monkeypatch.setattr(module, "_clean_empty_fodlers", AsyncMock())
     scraper = module.Scraper(Mock())
+    run_tasks = scraper._run_tasks_with_limit
+
+    async def finish_tasks(*args):
+        await run_tasks(*args)
+        Flags.succ_count = success_count
+        Flags.fail_count = fail_count
+
+    monkeypatch.setattr(scraper, "_run_tasks_with_limit", finish_tasks)
     await scraper._run(FileMode.Default, [path])
     combined = "\n".join(call.args[0] for call in logs.call_args_list)
     assert f"评价后缀待检查（留原地）\n{path}：odd" in combined
     assert 'color="red"' in combined
-    assert Flags.fail_count == Flags.succ_count == 0
+    summary = next(call.args[0] for call in logs.call_args_list if "Total " in call.args[0])
+    assert "留原地（评价后缀待检查）1" in summary
+    assert f"Success {success_count} , Failed {fail_count}" in summary
+    assert net.call_args.args[0] == summary
+    if success_count == 0:
+        assert "🔴 批次结束" in summary
+        assert "🎉" not in summary
+        assert "🎉" not in status.call_args.args[0]
+        assert "留原地（评价后缀待检查）1" in status.call_args.args[0]
+    else:
+        assert "🎉" in summary
+    assert Flags.succ_count == success_count and Flags.fail_count == fail_count
     assert Flags.remain_list == [path]
+
+
+@pytest.mark.parametrize(
+    "template,has_suffix",
+    [
+        ("{{ actor }}", False),
+        ("{{ first_actor }}", False),
+        ("{{ all_actor }}", False),
+        ("{{ number }}", False),
+        ("{{ title }}/{{ actor }}", False),
+        ("{{ actor }}/{{ title }}", True),
+        ('{{ actor }}/{{ title | replace("/", "-") }}', True),
+        ("{% if title %}{{ title }}/{{ actor }}{% endif %}", False),
+        ("{{ actor }}/{{ originaltitle }}", True),
+        ("{{ actor }}/{{ fields.title }}", True),
+        ("{{ actor }}/{{ fields['originaltitle'] }}", True),
+    ],
+)
+def test_folder_suffix_only_for_final_title_template(monkeypatch, template, has_suffix):
+    info, data = build()
+    data.actor = data.all_actor = "performer" * 15
+    data.originaltitle = "original" * 30
+    monkeypatch.setattr(manager.config, "folder_name", template)
+    folder, name = _get_folder_path(Path("output"), info, data)
+    assert folder.name.endswith(info.evaluation_suffix) is has_suffix
+    assert name.endswith(info.evaluation_suffix) is has_suffix
+    assert len(name) <= 60
+    if not has_suffix:
+        assert info.evaluation_suffix not in folder.name

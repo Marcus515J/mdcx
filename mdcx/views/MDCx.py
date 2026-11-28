@@ -10717,7 +10717,7 @@ class Ui_MDCx(object):
         self.label_116.setText(_translate("MDCx", "<p\n"
 "                          style=\'line-height:20px\'>指马赛克有损去除版本，当视频文件路径中含有「-uncensored.」、「.restored」、「破解」、「克破」、「UMR.」等字样时，该文件识别为无码破解版本。<br>\n"
 "                          在重命名文件名及目录名时，在番号后显示该字符表示为无码破解版本</p>"))
-        self.label_evaluation_suffix_help.setText(_translate("MDCx", "<p style=\'line-height:20px\'>刮削改名时，原文件名末尾「-」后面全是这里的词，就保留到新文件名和文件夹名末尾。词之间用空格，大小写敏感；留空关闭。</p>"))
+        self.label_evaluation_suffix_help.setText(_translate("MDCx", "<p style=\'line-height:20px\'>刮削改名时，原文件名末尾「-」后面全是这里的词，就保留到新文件名末尾；文件夹名里有标题时也接在文件夹名末尾。词之间用空格，大小写敏感；留空关闭。</p>"))
         self.label_174.setText(_translate("MDCx", "无码破解："))
         self.label_145.setText(_translate("MDCx", "<p>指有码版本，当视频文件路径中含有「有码」、「有碼」字样时，该文件识别为\n"
 "                          有码版本，重命名文件名及目录名时，在番号后显示该字符表示为有码版本</p>"))

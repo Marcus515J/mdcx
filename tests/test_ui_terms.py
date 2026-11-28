@@ -349,7 +349,7 @@ def test_evaluation_suffix_control_and_acceptance_terms(tmp_path):
         assert control.parentWidget() == ui.lineEdit_umr_style.parentWidget()
         assert control.geometry().height() == ui.lineEdit_umr_style.geometry().height() == 30
         assert control.x() == ui.lineEdit_umr_style.x()
-        help_text = "刮削改名时，原文件名末尾「-」后面全是这里的词，就保留到新文件名和文件夹名末尾。词之间用空格，大小写敏感；留空关闭。"
+        help_text = "刮削改名时，原文件名末尾「-」后面全是这里的词，就保留到新文件名末尾；文件夹名里有标题时也接在文件夹名末尾。词之间用空格，大小写敏感；留空关闭。"
         help_label = ui.label_evaluation_suffix_help
         assert help_text in help_label.text()
         assert any(help_text in text for text in texts)

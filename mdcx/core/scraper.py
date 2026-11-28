@@ -415,13 +415,20 @@ class Scraper:
         used_time = str(round((end_time - Flags.start_time), 2))
         average_time = str(round((end_time - Flags.start_time) / task_count, 2)) if task_count else used_time
         signal.exec_set_processbar.emit(0)
-        signal.set_label_file_path.emit(f"🎉 恭喜！全部刮削完成！共 {task_count} 个文件！用时 {used_time} 秒")
-        signal.show_traceback_log(
-            f"🎉 All finished!!! Total {task_count} , Success {Flags.succ_count} , Failed {Flags.fail_count} "
+        held_count = len(self._evaluation_held)
+        held_without_success = held_count > 0 and Flags.succ_count == 0
+        completion_prefix = " 🔴 批次结束" if held_without_success else " 🎉🎉🎉 All finished!!!"
+        summary = (
+            f"{completion_prefix} Total {task_count} , Success {Flags.succ_count} , Failed {Flags.fail_count}"
+            f" , 留原地（评价后缀待检查）{held_count}"
         )
-        signal.show_log_text(
-            f" 🎉🎉🎉 All finished!!! Total {task_count} , Success {Flags.succ_count} , Failed {Flags.fail_count} "
-        )
+        if held_without_success:
+            signal.set_label_file_path.emit(f"批次结束：有评价后缀待检查，共 {task_count} 个文件，用时 {used_time} 秒")
+        else:
+            signal.set_label_file_path.emit(f"🎉 恭喜！全部刮削完成！共 {task_count} 个文件！用时 {used_time} 秒")
+        signal.show_traceback_log(summary)
+        signal.show_log_text(summary)
+        signal.show_net_info(summary)
         signal.show_log_text("================================================================================")
         if Flags.failed_list:
             signal.show_log_text("    *** Failed results ****")
@@ -439,7 +446,10 @@ class Scraper:
         signal.show_log_text(" 📺 Movies num".ljust(15) + f": {task_count}")
         signal.show_log_text(" 🍕 Per time".ljust(15) + f": {average_time}S")
         signal.show_log_text("================================================================================")
-        signal.show_scrape_info(f"🎉 刮削完成 {task_count}/{task_count}")
+        if held_without_success:
+            signal.show_scrape_info(f"批次结束 {task_count}/{task_count}，留原地（评价后缀待检查）{held_count}")
+        else:
+            signal.show_scrape_info(f"🎉 刮削完成 {task_count}/{task_count}")
 
         # auto run after scrape
         if EmbyAction.ACTOR_PHOTO_AUTO in manager.config.emby_on:
