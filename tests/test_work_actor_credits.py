@@ -117,6 +117,7 @@ def test_excluded_types_unchanged(setup_credits, kind, del_char):
     assert not messages
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("credit, expected", [("星野甲", "星野简甲"), ("月野乙", "月野乙")])
 @pytest.mark.parametrize("lang", [Language.ZH_CN, Language.ZH_TW, Language.JP])
 async def test_confirmed_credit_mapping_pipeline(setup_credits, credit, expected, lang):
