@@ -245,7 +245,7 @@ def parse_evaluation_suffix(file_name: str) -> tuple[str, str, tuple[str, ...]]:
         if int(digits) > 0 and (match[1] or len(digits) == 1 or CDChar.DIGITAL in manager.config.cd_char):
             cd = match[0]
             stem = stem[: match.start()]
-    if " " not in stem or "-" not in stem:
+    if "-" not in stem:
         return file_name, "", ()
     parts = stem.split("-")
     last_words = parts[-1].split()

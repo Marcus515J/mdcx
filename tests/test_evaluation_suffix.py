@@ -68,7 +68,10 @@ def config(monkeypatch):
         ("ABC-123 title-good-YES nice", "-good-YES nice", ()),
         ("ABC-123-good nice-cd2", "-good nice", ()),
         ("ABC-123-good nice-2", "-good nice", ()),
-        ("ABC-123-good", "", ()),
+        ("ABC-123-good", "-good", ()),
+        ("ABC-123-good-cd2", "-good", ()),
+        ("ABC-123-good-2", "-good", ()),
+        ("good", "", ()),
         ("good nice", "", ()),
         ("ABC-123 title-goodness", "", ()),
         ("ABC-123 title-Good", "", ()),
@@ -105,6 +108,57 @@ async def test_stage_number_cd_and_roundtrip(tmp_path):
     )
     assert data.title == "title"
     assert "good" not in str(data.tag)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [1, 2, 3, 4])
+async def test_no_space_single_word_roundtrip(tmp_path, monkeypatch, mode):
+    monkeypatch.setattr(manager.config, "main_mode", mode)
+    monkeypatch.setattr(manager.config, "naming_file", "{{ number }}")
+    monkeypatch.setattr(manager.config, "update_c_filetemplate", "{{ number }}")
+    monkeypatch.setattr(manager.config, "folder_name", "{{ number }}")
+    info = await get_file_info_v2(tmp_path / "TEST-123 title-good.mp4", copy_sub=False)
+    data = CrawlersResult.empty()
+    data.number, data.title = info.number, "title"
+    output = get_output_name(info, data, tmp_path / "output", ".mp4")
+    assert output[1].name == "TEST-123-good.mp4"
+    if mode in (1, 2):
+        assert output[0].name == "TEST-123-good"
+    else:
+        assert output[0] == info.file_path.parent
+    again = await get_file_info_v2(output[1], copy_sub=False)
+    assert again.number == "TEST-123"
+    assert again.evaluation_suffix == "-good"
+    assert get_output_name(again, data, tmp_path / "output", ".mp4") == output
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [1, 3])
+async def test_written_nfo_title_and_tags_exclude_suffix(tmp_path, monkeypatch, mode):
+    from xml.etree import ElementTree as ET
+
+    from mdcx.config.enums import NfoInclude
+    from mdcx.core.nfo import write_nfo
+
+    for key, value in {
+        "main_mode": mode,
+        "naming_media": "{{ filename }} {{ title }}",
+        "update_titletemplate": "{{ filename }} {{ title }}",
+        "download_files": [],
+        "keep_files": [],
+        "outline_format": [],
+        "nfo_include_new": [NfoInclude.TAG, NfoInclude.GENRE],
+    }.items():
+        monkeypatch.setattr(manager.config, key, value)
+    info = await get_file_info_v2(tmp_path / "TEST-123-good.mp4", copy_sub=False)
+    data = CrawlersResult.empty()
+    data.number, data.title, data.tags = info.number, "title", ["ordinary"]
+    path = tmp_path / "TEST-123-good.nfo"
+    assert await write_nfo(info, data, path, tmp_path, update=True)
+    root = ET.parse(path).getroot()
+    assert root.findtext("title") == "TEST-123 title"
+    assert [node.text for node in root.findall("tag")] == ["ordinary"]
+    assert [node.text for node in root.findall("genre")] == ["ordinary"]
 
 
 def build():
@@ -153,6 +207,90 @@ def test_empty_default_preserves_names(monkeypatch):
     info.evaluation_suffix = ""
     data.title = "title"
     assert _generate_file_name("-cd2", info, data) == "ABC-123 title-cd2"
+
+
+def test_settings_save_close_reopen(tmp_path, monkeypatch, qt_application):
+    import importlib
+
+    from PyQt6.QtCore import QTimer
+    from PyQt6.QtWidgets import QMainWindow
+
+    from mdcx.controllers.main_window.main_window import MyMAinWindow
+    from mdcx.views.MDCx import Ui_MDCx
+
+    config_module = importlib.import_module("mdcx.config.manager")
+    package = "mdcx.controllers.main_window."
+    load_module = importlib.import_module(package + "load_config")
+    save_module = importlib.import_module(package + "save_config")
+    cleanup_module = importlib.import_module(package + "file_cleanup_settings")
+    llm_module = importlib.import_module(package + "llm_settings")
+    local_module = importlib.import_module(package + "local_model_settings")
+    extend_module = importlib.import_module("mdcx.config.extend")
+    monkeypatch.setattr(config_module, "MAIN_PATH", tmp_path)
+    monkeypatch.setattr(config_module, "MARK_FILE", tmp_path / "MDCx.config")
+    temporary = config_module.ConfigManager()
+    # Never load the user's configuration, even in the unrelated settings panels.
+    for module in (load_module, save_module, cleanup_module, llm_module, local_module, extend_module):
+        monkeypatch.setattr(module, "manager", temporary)
+    temporary.config.use_database = False
+    temporary.save()
+    tracebacks = Mock()
+    monkeypatch.setattr(load_module.signal_qt, "show_traceback_log", tracebacks)
+
+    def open_settings():
+        window = QMainWindow()
+        window.Ui = Ui_MDCx()
+        window.Ui.setupUi(window)
+        MyMAinWindow._setup_fc2ppvdb_cookie_ui(window)
+        window.localversion = "test"
+        window.dark_mode = False
+        window.timer_scrape = QTimer(window)
+        window.tray_icon = Mock()
+        window.set_javdb_cookie = Mock()
+        window.set_javbus_cookie = Mock()
+        window.set_label_file_path = Mock()
+        # These callbacks affect unrelated window chrome; persistence stays real.
+        for name in (
+            "update_field_priority_try_all_images_state",
+            "update_amazon_strict_pic_verify_state",
+            "show_hide_logs",
+            "checkBox_i_agree_clean_clicked",
+            "_windows_auto_adjust",
+        ):
+            setattr(window, name, Mock())
+        cleanup_module.setup_file_cleanup_settings(window)
+        llm_module.setup_llm_settings(window)
+        window.local_model_controller.timer.stop()
+        load_module.load_config(window)
+        window.Ui.pushButton_save_config.clicked.connect(lambda: save_module.save_config(window))
+        window.show()
+        qt_application.processEvents()
+        return window
+
+    first = open_settings()
+    try:
+        assert first.Ui.lineEdit_evaluation_suffix_words.text() == ""
+        first.Ui.lineEdit_evaluation_suffix_words.setText("  demo sample  ")
+        first.Ui.pushButton_save_config.click()
+        assert Config.model_validate_json(temporary.path.read_text()).evaluation_suffix_words == "  demo sample  "
+    finally:
+        first.local_model_controller.shutdown()
+        first.timer_scrape.stop()
+        first.close()
+        first.deleteLater()
+        qt_application.processEvents()
+    # Reset memory so the second window must reload the persisted value.
+    temporary.config.evaluation_suffix_words = ""
+    second = open_settings()
+    try:
+        assert second.Ui.lineEdit_evaluation_suffix_words.text() == "  demo sample  "
+        tracebacks.assert_not_called()
+    finally:
+        second.local_model_controller.shutdown()
+        second.timer_scrape.stop()
+        second.close()
+        second.deleteLater()
+        qt_application.processEvents()
 
 
 @pytest.mark.asyncio
