@@ -2,8 +2,11 @@
 
 import re
 
+from ..config.enums import FixedScrapingType
 from ..config.resources import resources
 from ..manual import ManualConfig
+from ..models.log_buffer import LogBuffer
+from ..models.types import CrawlersResult
 
 # Existing actor-search exclusions in core/amazon.py; keep exact-name matching.
 ACTOR_PLACEHOLDERS = frozenset({"未知演员", "未知演員", "女优不明", "女優不明", "人物不明"})
@@ -384,6 +387,41 @@ def _normalize_mapping_lookup(value: str) -> str:
     for full_char, half_char in ManualConfig.FULL_HALF_CHAR:
         normalized = normalized.replace(full_char, half_char)
     return normalized
+
+
+def confirm_work_actor_credits(res: CrawlersResult) -> tuple[set[str], set[str]]:
+    """Resolve once, before cleanup/translation; keep private state on this result only."""
+    if res.scraping_type not in (FixedScrapingType.YOUMA, FixedScrapingType.WUMA):
+        return set(), set()
+    if (state := getattr(res, "_work_actor_credits", None)) is not None:
+        return state
+
+    confirmed: set[str] = set()
+    unresolved: set[str] = set()
+    replacements: dict[str, str] = {}
+    evidence = _normalize_mapping_lookup(res.title + "\n" + res.outline)
+    for name in dict.fromkeys(res.actors + res.all_actors):
+        match = re.fullmatch(r"([^()（）]+)(?:\(([^()（）]+)\)|（([^()（）]+)）)", name)
+        if not match:
+            continue
+        outer, inner = match[1].strip(), (match[2] or match[3]).strip()
+        if not outer or not inner or any(char.isdigit() for char in inner):
+            continue
+        hits = [candidate for candidate in (outer, inner) if _normalize_mapping_lookup(candidate) in evidence]
+        if len(hits) == 1:
+            credit = hits[0]
+            confirmed.add(credit)
+            for candidate in (name, outer, inner):
+                replacements[candidate] = credit
+        else:
+            unresolved.add(name)
+            LogBuffer.log().write("\n ⚪ 演员署名未确认")
+
+    if replacements:
+        for field in ("actors", "all_actors"):
+            setattr(res, field, list(dict.fromkeys(replacements.get(name, name) for name in getattr(res, field))))
+    res._work_actor_credits = (confirmed, unresolved)
+    return confirmed, unresolved
 
 
 def _has_suren_description_word(name: str, *, allow_suren_stage_word: bool = False) -> bool:
