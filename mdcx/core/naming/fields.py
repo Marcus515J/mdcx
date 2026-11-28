@@ -93,7 +93,7 @@ def build_naming_context(
     """构建命名模板需要的全部字段值。"""
 
     _, file_full_name = split_path(file_info.file_path)
-    filename = os.path.splitext(file_full_name)[0]
+    filename = file_info.file_name if file_info.evaluation_suffix else os.path.splitext(file_full_name)[0]
 
     destroyed = file_info.destroyed
     leak = file_info.leak

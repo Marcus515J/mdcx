@@ -439,6 +439,7 @@ def save_config(self: "MyMAinWindow"):
     manager.config.file_name_max = int(self.Ui.lineEdit_file_name_max.text())  # 长度命名规则-文件名
     manager.config.actor_name_max = int(self.Ui.lineEdit_actor_name_max.text())  # 长度命名规则-演员数量
 
+    manager.config.evaluation_suffix_words = self.Ui.lineEdit_evaluation_suffix_words.text()
     manager.config.umr_style = self.Ui.lineEdit_umr_style.text()  # 无码破解版本命名
     manager.config.leak_style = self.Ui.lineEdit_leak_style.text()  # 无码流出版本命名
     manager.config.wuma_style = self.Ui.lineEdit_wuma_style.text()  # 无码版本命名

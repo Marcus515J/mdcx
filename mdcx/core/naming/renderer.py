@@ -23,6 +23,7 @@ class NameRenderOptions:
     show_cnword_suffix: bool = False
     show_moword_suffix: bool = False
     max_length: int | None = None
+    preserved_suffix: str = ""
 
 
 @dataclass(frozen=True)
@@ -77,8 +78,11 @@ def _finalize_text(text: str, target: NamingTarget) -> str:
     return sanitize_name(text, allow_path_separator=target == NamingTarget.FOLDER)
 
 
-def _render_with_values(template: str, values: dict[str, str], target: NamingTarget) -> str:
-    return _finalize_text(render_template(template, values), target)
+def _render_with_values(template: str, values: dict[str, str], target: NamingTarget, preserved_suffix: str = "") -> str:
+    text = _finalize_text(render_template(template, values), target)
+    if preserved_suffix and text.endswith(preserved_suffix):
+        text = text[: -len(preserved_suffix)]
+    return text
 
 
 def _smart_truncate(
@@ -86,8 +90,9 @@ def _smart_truncate(
     values: dict[str, str],
     target: NamingTarget,
     max_length: int,
+    preserved_suffix: str = "",
 ) -> tuple[str, list[str]]:
-    text = _render_with_values(template, values, target)
+    text = _render_with_values(template, values, target, preserved_suffix)
     if max_length <= 0 or len(text) <= max_length:
         return text, []
 
@@ -106,7 +111,7 @@ def _smart_truncate(
             continue
         mutable_values[field_name] = next_value
         truncated_fields.append(field_name)
-        text = _render_with_values(template, mutable_values, target)
+        text = _render_with_values(template, mutable_values, target, preserved_suffix)
 
     if len(text) > max_length:
         text = text[:max_length].rstrip(" ,，、;；:：._+-")
@@ -133,6 +138,7 @@ def render_name(
         values,
         options.target,
         int(options.max_length or 0),
+        options.preserved_suffix,
     )
     fallback = context.get("number") or context.get("title") or context.get("filename") or "MDCx"
     if not text:

@@ -2,6 +2,7 @@ import asyncio
 import copy as copy_module
 import time
 import traceback
+from html import escape
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -44,7 +45,7 @@ from ..utils import executor, get_current_time, get_real_time, get_used_time, sp
 from ..utils.dataclass import update
 from ..utils.file import copy_file_async, move_file_async
 from ..utils.path import is_any_descendant
-from .file import creat_folder, deal_old_files, get_file_info_v2, get_output_name, move_movie
+from .file import creat_folder, deal_old_files, get_file_info_v2, get_output_name, move_movie, parse_evaluation_suffix
 from .file_crawler import FileScraper, classify_existing_scrape_result, classify_scrape_task
 from .image import add_mark
 from .media_resource import MediaResourceContext
@@ -162,6 +163,7 @@ class Scraper:
         self._quality_locks: dict[str, asyncio.Lock] = {}
         self._quality_resolved: dict[str, tuple] = {}
         self._quality_summaries: list[str] = []
+        self._evaluation_held: dict[Path, tuple[str, ...]] = {}
         self._quality_completed_attempts = 0
         self._retry_display_done = 0
         self._suren_avwiki_cache: dict[str, AvwikiActorQueryResult] = {}
@@ -270,6 +272,7 @@ class Scraper:
 
     async def _run_batch(self, file_mode: FileMode, movie_list: list[Path] | None) -> None:
         Flags.reset()
+        self._evaluation_held.clear()
         self._quality_pending.clear()
         self._quality_by_number.clear()
         self._quality_first.clear()
@@ -379,6 +382,14 @@ class Scraper:
                     signal.show_log_text("\n📋 刮削质量摘要\n" + "\n".join(self._quality_summaries))
                 batch_completed = not (signal.stop or Flags.stop_requested) and Flags.scrape_done >= task_count
             finally:
+                if self._evaluation_held:
+                    signal.show_log_text(
+                        "\n📋 评价后缀待检查（留原地）\n"
+                        + "\n".join(
+                            f"{escape(str(path))}：{escape(' '.join(words))}"
+                            for path, words in self._evaluation_held.items()
+                        )
+                    )
                 if (batch := batch_diagnostics.get()) is not None:
                     signal.show_log_text("\n" + "\n".join(batch.lines(incomplete=not batch_completed)))
             if Flags.scrape_done < task_count and not (signal.stop or Flags.stop_requested):
@@ -404,13 +415,20 @@ class Scraper:
         used_time = str(round((end_time - Flags.start_time), 2))
         average_time = str(round((end_time - Flags.start_time) / task_count, 2)) if task_count else used_time
         signal.exec_set_processbar.emit(0)
-        signal.set_label_file_path.emit(f"🎉 恭喜！全部刮削完成！共 {task_count} 个文件！用时 {used_time} 秒")
-        signal.show_traceback_log(
-            f"🎉 All finished!!! Total {task_count} , Success {Flags.succ_count} , Failed {Flags.fail_count} "
+        held_count = len(self._evaluation_held)
+        held_without_success = held_count > 0 and Flags.succ_count == 0
+        completion_prefix = " 🔴 批次结束" if held_without_success else " 🎉🎉🎉 All finished!!!"
+        summary = (
+            f"{completion_prefix} Total {task_count} , Success {Flags.succ_count} , Failed {Flags.fail_count}"
+            f" , 留原地（评价后缀待检查）{held_count}"
         )
-        signal.show_log_text(
-            f" 🎉🎉🎉 All finished!!! Total {task_count} , Success {Flags.succ_count} , Failed {Flags.fail_count} "
-        )
+        if held_without_success:
+            signal.set_label_file_path.emit(f"批次结束：有评价后缀待检查，共 {task_count} 个文件，用时 {used_time} 秒")
+        else:
+            signal.set_label_file_path.emit(f"🎉 恭喜！全部刮削完成！共 {task_count} 个文件！用时 {used_time} 秒")
+        signal.show_traceback_log(summary)
+        signal.show_log_text(summary)
+        signal.show_net_info(summary)
         signal.show_log_text("================================================================================")
         if Flags.failed_list:
             signal.show_log_text("    *** Failed results ****")
@@ -428,7 +446,10 @@ class Scraper:
         signal.show_log_text(" 📺 Movies num".ljust(15) + f": {task_count}")
         signal.show_log_text(" 🍕 Per time".ljust(15) + f": {average_time}S")
         signal.show_log_text("================================================================================")
-        signal.show_scrape_info(f"🎉 刮削完成 {task_count}/{task_count}")
+        if held_without_success:
+            signal.show_scrape_info(f"批次结束 {task_count}/{task_count}，留原地（评价后缀待检查）{held_count}")
+        else:
+            signal.show_scrape_info(f"🎉 刮削完成 {task_count}/{task_count}")
 
         # auto run after scrape
         if EmbyAction.ACTOR_PHOTO_AUTO in manager.config.emby_on:
@@ -457,6 +478,19 @@ class Scraper:
         self._check_stop("开始处理")
         # Explicit/resumed tasks also bypass site search for quarantined or matched files.
         file_path, count, count_all = task
+        _, _, unknown_words = parse_evaluation_suffix(file_path.stem)
+        if unknown_words:
+            self._evaluation_held[file_path] = unknown_words
+            signal.show_log_text(
+                f'<font color="red"> 🔴 评价后缀含词表外的词：{escape(" ".join(unknown_words))} — {escape(str(file_path))}</font>'
+            )
+            Flags.counting_order += 1
+            Flags.scrape_starting += 1
+            Flags.scrape_started += 1
+            Flags.scrape_done += 1
+            Flags.scrape_processed += 1
+            self._show_progress(count_all)
+            return
         if _is_garbage_directory(file_path.parent) or (
             manager.config.garbage_enabled
             and await asyncio.to_thread(
@@ -1191,7 +1225,14 @@ class Scraper:
 
         # 移动字幕、种子、bif、trailer、其他文件
         if file_info.has_sub:
-            await move_sub(folder_old_path, folder_new_path, file_name, sub_list, naming_rule)
+            await move_sub(
+                folder_old_path,
+                folder_new_path,
+                file_info.file_path.stem if file_info.evaluation_suffix else file_name,
+                sub_list,
+                naming_rule,
+                alternate_file_name=file_name if file_info.evaluation_suffix else "",
+            )
         await move_torrent(folder_old_path, folder_new_path, file_name, movie_number, naming_rule)
         await move_bif(folder_old_path, folder_new_path, file_name, naming_rule)
         # self.move_trailer_video(folder_old_path, folder_new_path, file_name, naming_rule)
@@ -1326,6 +1367,7 @@ async def move_sub(
     file_name: str,
     sub_list: list[str],
     naming_rule: str,
+    alternate_file_name: str = "",
 ) -> None:
     copy_flag = False
 
@@ -1342,18 +1384,20 @@ async def move_sub(
     elif not manager.config.success_file_move and not manager.config.success_file_rename:
         return
 
+    subtitle_bases = list(dict.fromkeys(base for base in (file_name, alternate_file_name) if base))
     for sub in sub_list:
-        sub_old_path = str(folder_old_path / (file_name + sub))
-        sub_new_path = str(folder_new_path / (naming_rule + sub))
-        sub_new_path_chs = str(folder_new_path / (naming_rule + ".chs" + sub))
-        if manager.config.subtitle_add_chs and ".chs" not in sub:
-            sub_new_path = sub_new_path_chs
-        if await aiofiles.os.path.exists(sub_old_path) and not await aiofiles.os.path.exists(sub_new_path):
-            if copy_flag:
-                if not await copy_file_async(sub_old_path, sub_new_path):
-                    LogBuffer.log().write("\n 🔴 Sub copy failed!")
+        for subtitle_base in subtitle_bases:
+            sub_old_path = str(folder_old_path / (subtitle_base + sub))
+            sub_new_path = str(folder_new_path / (naming_rule + sub))
+            sub_new_path_chs = str(folder_new_path / (naming_rule + ".chs" + sub))
+            if manager.config.subtitle_add_chs and ".chs" not in sub:
+                sub_new_path = sub_new_path_chs
+            if await aiofiles.os.path.exists(sub_old_path) and not await aiofiles.os.path.exists(sub_new_path):
+                if copy_flag:
+                    if not await copy_file_async(sub_old_path, sub_new_path):
+                        LogBuffer.log().write("\n 🔴 Sub copy failed!")
+                        return
+                elif not await move_file_async(sub_old_path, sub_new_path):
+                    LogBuffer.log().write("\n 🔴 Sub move failed!")
                     return
-            elif not await move_file_async(sub_old_path, sub_new_path):
-                LogBuffer.log().write("\n 🔴 Sub move failed!")
-                return
-        LogBuffer.log().write("\n 🍀 Sub done!")
+            LogBuffer.log().write("\n 🍀 Sub done!")

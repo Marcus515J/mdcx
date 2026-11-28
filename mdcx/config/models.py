@@ -597,6 +597,7 @@ class Config(BaseModel):
     file_name_max: int = Field(default=60, title="文件名称最大长度")
     actor_name_max: int = Field(default=3, title="演员名称最大数量")
     actor_name_more: str = Field(default="等演员", title="更多演员名称")
+    evaluation_suffix_words: str = Field(default="", title="评价后缀词表")
     umr_style: str = Field(default="-破解", title="UMR样式")
     leak_style: str = Field(default="-流出", title="泄露样式")
     wuma_style: str = Field(default="", title="无码样式")
