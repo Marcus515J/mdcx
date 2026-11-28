@@ -272,7 +272,10 @@ def test_settings_save_close_reopen(tmp_path, monkeypatch, qt_application):
         assert first.Ui.lineEdit_evaluation_suffix_words.text() == ""
         first.Ui.lineEdit_evaluation_suffix_words.setText("  demo sample  ")
         first.Ui.pushButton_save_config.click()
-        assert Config.model_validate_json(temporary.path.read_text()).evaluation_suffix_words == "  demo sample  "
+        assert (
+            Config.model_validate_json(temporary.path.read_text(encoding="utf-8")).evaluation_suffix_words
+            == "  demo sample  "
+        )
     finally:
         first.local_model_controller.shutdown()
         first.timer_scrape.stop()
@@ -330,8 +333,8 @@ async def test_suspicious_is_held_before_any_work(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_original_sidecars_still_read(tmp_path, monkeypatch):
     path = tmp_path / "TEST-123-good nice.mp4"
-    path.with_suffix(".srt").write_text("temporary subtitles")
-    path.with_suffix(".nfo").write_text("<movie><tag>无码破解</tag></movie>")
+    path.with_suffix(".srt").write_text("temporary subtitles", encoding="utf-8")
+    path.with_suffix(".nfo").write_text("<movie><tag>无码破解</tag></movie>", encoding="utf-8")
     monkeypatch.setattr(manager.config, "sub_type", [".srt"])
     info = await get_file_info_v2(path, copy_sub=False)
     assert info.sub_list == [".srt"]
